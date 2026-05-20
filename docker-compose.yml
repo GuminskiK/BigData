@@ -1,0 +1,64 @@
+version: '3.8'
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.0
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+
+  kafka:
+    image: confluentinc/cp-kafka:7.4.0
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+
+  mongodb:
+    image: mongo:8.0 # Zaktualizowano do wspieranej wersji
+    container_name: mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+
+  producer:
+    build: ./producer
+    container_name: twitch_producer
+    restart: on-failure
+    depends_on:
+      - kafka
+
+  processor:
+    build: ./processor
+    container_name: spark_processor
+    command: >
+      /opt/spark/bin/spark-submit 
+      --master local[*]
+      --conf "spark.driver.extraJavaOptions=-Divy.cache.dir=/app/.ivy2 -Duser.home=/app -Duser.name=spark"
+      --conf "spark.executor.extraJavaOptions=-Duser.name=spark"
+      --conf "spark.hadoop.user.name=spark"
+      --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,org.mongodb.spark:mongo-spark-connector_2.12:10.4.0 
+      /app/spark_processor.py
+    environment:
+      - PYSPARK_PYTHON=python3
+      - PYTHONUNBUFFERED=1
+      - HADOOP_USER_NAME=spark
+    depends_on:
+      - kafka
+      - mongodb
+    volumes:
+      - spark_checkpoints_val:/app/spark_checkpoints
+
+volumes:
+  mongodb_data:
+  spark_checkpoints_val: # Użycie nazwanego wolumenu zamiast ścieżki lokalnej (./)

@@ -1,0 +1,4 @@
+kafka-python-ng==2.2.2
+pyspark==3.5.0
+vaderSentiment==3.3.2
+pymongo==4.6.0
