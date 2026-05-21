@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  producer:
+    build:
+      context: ./producer
+      dockerfile: Dockerfile.irc
+    container_name: twitch_producer
+    restart: on-failure
+    env_file: .env
+    environment:
+      - PYTHONUNBUFFERED=1
+
+  processor:
+    build: ./processor
+    container_name: spark_processor
+    command: >
+      /opt/spark/bin/spark-submit 
+      --master local[*]
+      --conf "spark.driver.extraJavaOptions=-Divy.cache.dir=/app/.ivy2 -Duser.home=/app -Duser.name=spark"
+      --conf "spark.executor.extraJavaOptions=-Duser.name=spark"
+      --conf "spark.hadoop.user.name=spark"
+      --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,org.mongodb.spark:mongo-spark-connector_2.12:10.4.0 
+      /app/spark_processor.py
+    env_file: .env
+    environment:
+      - PYSPARK_PYTHON=python3
+      - PYTHONUNBUFFERED=1
+      - HADOOP_USER_NAME=spark
+    volumes:
+      - spark_checkpoints_val:/app/spark_checkpoints
+
+volumes:
+  spark_checkpoints_val:

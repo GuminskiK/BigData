@@ -1,0 +1,2 @@
+twitchio==2.10.0
+kafka-python-ng==2.2.2

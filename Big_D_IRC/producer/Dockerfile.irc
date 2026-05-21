@@ -1,0 +1,8 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+COPY requirements-irc.txt .
+RUN pip install --no-cache-dir -r requirements-irc.txt
+
+COPY twitch_irc_producer.py .
+CMD ["python", "twitch_irc_producer.py"]
