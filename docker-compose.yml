@@ -1,6 +1,5 @@
-version: '3.8'
-
 services:
+  # Zookeeper (used by older Confluent Kafka images)
   zookeeper:
     image: confluentinc/cp-zookeeper:7.4.0
     container_name: zookeeper
@@ -9,7 +8,10 @@ services:
       ZOOKEEPER_TICK_TIME: 2000
     ports:
       - "2181:2181"
+    networks:
+      - bigdata-net
 
+  # Kafka broker (can be replaced with external broker by setting KAFKA_EXTERNAL=true and pointing producers/processors to it)
   kafka:
     image: confluentinc/cp-kafka:7.4.0
     container_name: kafka
@@ -22,43 +24,228 @@ services:
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    networks:
+      - bigdata-net
 
+  # Kafka web UI
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+    depends_on:
+      - kafka
+    networks:
+      - bigdata-net
+
+  # MongoDB (can be replaced with external Mongo by env override)
   mongodb:
-    image: mongo:8.0 # Zaktualizowano do wspieranej wersji
+    image: mongo:8.0
     container_name: mongodb
     ports:
       - "27017:27017"
     volumes:
       - mongodb_data:/data/db
+    networks:
+      - bigdata-net
 
-  producer:
-    build: ./producer
-    container_name: twitch_producer
+  # MinIO (S3-compatible object storage)
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin123
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+    networks:
+      - bigdata-net
+
+  # Spark cluster shared by TwitchChat and TwitchAPI jobs
+  spark-master:
+    image: apache/spark:3.5.0
+    container_name: spark-master
+    user: root
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
+    ports:
+      - "7077:7077"
+      - "8081:8080"
+    networks:
+      - bigdata-net
+
+  spark-worker:
+    build:
+      context: ./TwitchChat/processor
+      dockerfile: Dockerfile
+    container_name: spark-worker
+    user: root
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
+    environment:
+      SPARK_WORKER_CORES: 2
+      SPARK_WORKER_MEMORY: 2g
+    depends_on:
+      - spark-master
+    networks:
+      - bigdata-net
+
+  # TwitchChat IRC producer
+  twitchchat_producer:
+    build:
+      context: ./TwitchChat/producer
+      dockerfile: Dockerfile.irc
+    container_name: twitchchat_producer
     restart: on-failure
+    environment:
+      PYTHONUNBUFFERED: 1
+      KAFKA_BROKER: kafka:9092
+      KAFKA_TOPIC_TWITCH_CHAT: twitch_chat_stream
+      TWITCH_TOKEN: ${TWITCH_TOKEN}
+      TWITCH_NICK: ${TWITCH_NICK}
+      TWITCH_CHANNELS: ${TWITCH_CHANNELS:-xqc}
     depends_on:
       - kafka
+    networks:
+      - bigdata-net
 
-  processor:
-    build: ./processor
-    container_name: spark_processor
+  # TwitchChat Spark streaming job
+  twitchchat_processor:
+    build:
+      context: ./TwitchChat/processor
+      dockerfile: Dockerfile
+    container_name: twitchchat_processor
     command: >
-      /opt/spark/bin/spark-submit 
-      --master local[*]
+      /opt/spark/bin/spark-submit
+      --master spark://spark-master:7077
+      --conf "spark.cores.max=1"
       --conf "spark.driver.extraJavaOptions=-Divy.cache.dir=/app/.ivy2 -Duser.home=/app -Duser.name=spark"
       --conf "spark.executor.extraJavaOptions=-Duser.name=spark"
       --conf "spark.hadoop.user.name=spark"
-      --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,org.mongodb.spark:mongo-spark-connector_2.12:10.4.0 
+      --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,org.mongodb.spark:mongo-spark-connector_2.12:10.4.0
       /app/spark_processor.py
     environment:
-      - PYSPARK_PYTHON=python3
-      - PYTHONUNBUFFERED=1
-      - HADOOP_USER_NAME=spark
+      PYSPARK_PYTHON: python3
+      PYTHONUNBUFFERED: 1
+      HADOOP_USER_NAME: spark
+      KAFKA_BROKER: kafka:9092
+      KAFKA_TOPIC_TWITCH_CHAT: twitch_chat_stream
+      MONGO_URI: mongodb://mongodb:27017
     depends_on:
+      - spark-master
       - kafka
       - mongodb
     volumes:
-      - spark_checkpoints_val:/app/spark_checkpoints
+      - spark_checkpoints_chat:/app/spark_checkpoints
+    networks:
+      - bigdata-net
+
+  # TwitchAPI producer (Helix -> Kafka)
+  twitchapi_producer:
+    build:
+      context: ./TwitchAPI/producer
+      dockerfile: Dockerfile
+    container_name: twitchapi_producer
+    restart: on-failure
+    environment:
+      PYTHONUNBUFFERED: 1
+      KAFKA_BROKER: kafka:9092
+      KAFKA_TOPIC_TWITCH_API: twitch_api_stream
+      TWITCH_CLIENT_ID: ${TWITCH_CLIENT_ID}
+      TWITCH_CLIENT_SECRET: ${TWITCH_CLIENT_SECRET}
+      TWITCH_CHANNELS: ${TWITCH_CHANNELS:-xqc}
+    depends_on:
+      - kafka
+    networks:
+      - bigdata-net
+
+  # TwitchAPI Kafka -> MinIO consumer
+  twitchapi_minio_consumer:
+    build:
+      context: ./TwitchAPI/minio
+      dockerfile: Dockerfile
+    container_name: twitchapi_minio_consumer
+    restart: on-failure
+    environment:
+      PYTHONUNBUFFERED: 1
+      KAFKA_BROKER: kafka:9092
+      KAFKA_TOPIC_TWITCH_API: twitch_api_stream
+      MINIO_ENDPOINT_LOCAL: http://minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin123
+      MINIO_BUCKET: twitch-api-raw
+    depends_on:
+      - kafka
+      - minio
+    networks:
+      - bigdata-net
+
+  # TwitchAPI Spark batch job (MinIO -> MongoDB)
+  twitchapi_batch_processor:
+    build:
+      context: ./TwitchAPI/processor
+      dockerfile: Dockerfile
+    container_name: twitchapi_batch_processor
+    command: >
+      /opt/spark/bin/spark-submit
+      --master spark://spark-master:7077
+      --conf "spark.cores.max=1"
+      --conf "spark.driver.extraJavaOptions=-Divy.cache.dir=/app/.ivy2 -Duser.home=/app -Duser.name=spark"
+      --conf "spark.executor.extraJavaOptions=-Duser.name=spark"
+      --conf "spark.hadoop.user.name=spark"
+      --packages org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262,org.mongodb.spark:mongo-spark-connector_2.12:10.4.0
+      /app/spark_batch_job.py
+    environment:
+      PYTHONUNBUFFERED: 1
+      MINIO_ENDPOINT_DOCKER: http://minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin123
+      MINIO_BUCKET: twitch-api-raw
+      MONGO_URI: mongodb://mongodb:27017
+      MONGO_DB_ANALYTICS: twitch_api_analytics
+    depends_on:
+      - spark-master
+      - mongodb
+      - minio
+    networks:
+      - bigdata-net
+
+  # Google Trends batch processor (search interest -> MongoDB)
+  googletrends_processor:
+    build:
+      context: ./GoogleTrends
+      dockerfile: Dockerfile
+    container_name: googletrends_processor
+    restart: on-failure
+    environment:
+      PYTHONUNBUFFERED: 1
+      TWITCH_CHANNELS: ${TWITCH_CHANNELS:-xqc}
+      MONGO_URI: mongodb://mongodb:27017
+      MONGO_DB_ANALYTICS: twitch_api_analytics
+      GOOGLE_TRENDS_TIMEFRAME: now 7-d
+      GOOGLE_TRENDS_INTERVAL_MINUTES: 720
+      GOOGLE_TRENDS_CHUNK_SIZE: 3
+      GOOGLE_TRENDS_PAUSE_SECONDS: 30
+      GOOGLE_TRENDS_MAX_RETRIES: 5
+      GOOGLE_TRENDS_GEO: ""
+    depends_on:
+      - mongodb
+    networks:
+      - bigdata-net
 
 volumes:
   mongodb_data:
-  spark_checkpoints_val: # Użycie nazwanego wolumenu zamiast ścieżki lokalnej (./)
+  spark_checkpoints_chat:
+  kafka_data:
+  minio_data:
+
+networks:
+  bigdata-net:
+    driver: bridge

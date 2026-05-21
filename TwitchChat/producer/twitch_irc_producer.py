@@ -8,8 +8,8 @@ from twitchio.ext import commands
 from kafka import KafkaProducer
 from kafka.errors import NoBrokersAvailable
 
-KAFKA_SERVERS = os.getenv("KAFKA_SERVERS", "kafka:9092").split(",")
-KAFKA_TOPIC = os.getenv("TWITCH_KAFKA_TOPIC", "twitch_chat_stream")
+KAFKA_SERVERS = os.getenv("KAFKA_BROKER", "kafka:9092").split(",")
+KAFKA_TOPIC = os.getenv("KAFKA_TOPIC_TWITCH_CHAT", "twitch_chat_stream")
 TWITCH_TOKEN = os.getenv("TWITCH_TOKEN")
 TWITCH_NICK = os.getenv("TWITCH_NICK")
 TWITCH_CHANNELS = os.getenv("TWITCH_CHANNELS", "xqc").split(",")
