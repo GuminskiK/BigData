@@ -1,7 +1,9 @@
 import os
 import time
+from datetime import datetime, timezone
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, sum, avg, max, count, lit
+from pyspark.sql import Window
+from pyspark.sql.functions import col, sum, avg, max, count, lit, current_timestamp, row_number
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -73,10 +75,10 @@ def process_data():
         df.cache()
         print(f"Total rows read: {df.count()}")
 
-        def write_to_mongo(dataframe, collection):
+        def write_to_mongo(dataframe, collection, mode="append"):
             dataframe.write \
                 .format("mongodb") \
-                .mode("overwrite") \
+                .mode(mode) \
                 .option("spark.mongodb.write.connection.uri", resolve_mongo_uri()) \
                 .option("spark.mongodb.write.database", MONGO_DB_NAME) \
                 .option("spark.mongodb.write.collection", collection) \
@@ -87,17 +89,48 @@ def process_data():
                 print(f"No rows found for scope '{scope_name}'. Skipping writes.")
                 return
 
+            latest_window = Window.partitionBy("user_name").orderBy(
+                col("collected_at").desc(),
+                col("viewer_count").desc(),
+            )
+
+            latest_streams = scope_df.withColumn("rn", row_number().over(latest_window)) \
+                .filter(col("rn") == 1) \
+                .drop("rn")
+
+            peak_by_streamer = scope_df.groupBy("user_name") \
+                .agg(max("viewer_count").alias("peak_viewers"))
+
+            creator_snapshots = latest_streams.join(peak_by_streamer, on="user_name", how="inner") \
+                .select(
+                    "user_name",
+                    "game_name",
+                    col("viewer_count").alias("current_viewers"),
+                    "peak_viewers",
+                    "title",
+                    "started_at",
+                    "collected_at",
+                    "is_live",
+                ) \
+                .withColumn("stream_scope", lit(scope_name)) \
+                .withColumn("snapshot_at", current_timestamp())
+
             top_games = scope_df.groupBy("game_name") \
                 .agg(sum("viewer_count").alias("total_viewers"), count("stream_id").alias("streams_count")) \
-                .orderBy(col("total_viewers").desc())
+                .orderBy(col("total_viewers").desc()) \
+                .withColumn("stream_scope", lit(scope_name)) \
+                .withColumn("snapshot_at", current_timestamp())
 
             top_streamers = scope_df.groupBy("user_name", "game_name") \
                 .agg(max("viewer_count").alias("peak_viewers")) \
-                .orderBy(col("peak_viewers").desc())
+                .orderBy(col("peak_viewers").desc()) \
+                .withColumn("stream_scope", lit(scope_name)) \
+                .withColumn("snapshot_at", current_timestamp())
 
             print(f"Writing {scope_name} analytics to MongoDB...")
             write_to_mongo(top_games, f"top_games{collection_suffix}")
             write_to_mongo(top_streamers, f"streamer_stats{collection_suffix}")
+            write_to_mongo(creator_snapshots, f"creator_stats{collection_suffix}")
 
         targeted_df = df.filter(col("stream_scope") == "targeted")
         top100_df = df.filter(col("stream_scope") == "top100")

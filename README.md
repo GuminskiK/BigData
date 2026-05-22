@@ -39,7 +39,9 @@ Default login:
 admin / admin
 ```
 
-Grafana starts with one dashboard called `BigData Overview`. It is defined in `grafana/dashboards/bigdata-overview.json` and is loaded automatically by Grafana provisioning.
+Grafana starts with one dashboard called `BigData Overview`. It is defined in `grafana/dashboards/bigdata-visuals.json` and is loaded automatically by Grafana provisioning.
+
+The dashboard is chart-focused by default and assumes append-only Mongo data. Google Trends uses bar and time-series panels, Twitch stream analytics use pie charts and trend lines, and chat analytics use time-series and summary charts instead of a table-first layout. The latest visible snapshot is selected from the newest `snapshot_at`, `timestamp`, or `collected_at` in the same collections that store the full history.
 
 ## How Grafana fits together
 
@@ -55,10 +57,24 @@ So if a panel is empty, the first thing to check is the API endpoint in a browse
 
 - Targeted Twitch stream analytics.
 - Top 100 Twitch stream analytics.
+- Per-creator Twitch analytics with a `creator` Grafana variable.
 - Google Trends summaries.
 - Google Trends interest over time.
 
 The dashboard is intentionally simple. It is a starter that proves the full path works; you can add more panels later without changing the backend wiring.
+
+The creator view uses these API endpoints:
+
+- `/creators`
+- `/creator_summary`
+- `/creator_viewers_history`
+- `/creator_chat_history`
+- `/creator_top_chatters`
+- `/creator_trends_history`
+- `/creator_recent_streams`
+- `/creator_games`
+
+The creator panels are append-only too, and the dashboard selects the latest snapshot per creator from MongoDB.
 
 ## Useful URLs
 
@@ -71,28 +87,49 @@ The dashboard is intentionally simple. It is a starter that proves the full path
 
 - `/top_streamers`
 - `/top_streamers_top100`
+- `/top_streamers_history`
+- `/top_streamers_history_top100`
 - `/top_games`
 - `/top_games_top100`
+- `/top_games_history`
+- `/top_games_history_top100`
 - `/sentiment_over_time`
 - `/messages_per_minute`
+- `/messages_per_hour`
+- `/negative_messages_per_hour`
 - `/top_chatters`
 - `/negative_messages`
 - `/channel_summary`
 - `/subscribers_vs_normal`
+- `/unique_chat_users`
+- `/creators`
+- `/creator_summary`
+- `/creator_viewers_history`
+- `/creator_chat_history`
+- `/creator_top_chatters`
+- `/creator_trends_history`
+- `/creator_recent_streams`
+- `/creator_games`
 - `/google_trends_summary`
+- `/google_trends_comparison`
 - `/google_trends_interest_over_time`
 
 ## Data layout
 
-- TwitchChat writes chat analytics into `twitch_chat`.
-- TwitchAPI writes targeted stream analytics into `twitch_api_analytics`.
-- TwitchAPI also stores top 100 stream analytics in separate collections with the `_top100` suffix.
-- Google Trends writes into `google_trends`.
+- TwitchChat writes append-only raw chat events into `twitch_chat.raw_messages`.
+- TwitchChat writes append-only windowed chat metrics into `twitch_chat.channel_stats`.
+- TwitchAPI writes append-only targeted snapshots into `twitch_api_analytics.top_games` and `twitch_api_analytics.streamer_stats`.
+- TwitchAPI writes append-only top 100 snapshots into `twitch_api_analytics.top_games_top100` and `twitch_api_analytics.streamer_stats_top100`.
+- Google Trends writes append-only keyword time series into `google_trends.google_trends_interest_over_time`.
+- Google Trends writes append-only batch summaries into `google_trends.google_trends_summary`.
+
+In all of those collections, the latest state is determined by `snapshot_at`, `timestamp`, or `collected_at`, depending on the dataset.
 
 ## Notes
 
 - `mongo-api` is the preferred integration point for Grafana Infinity.
 - Grafana is kept optional through the `viz` profile so the core pipeline stays lightweight.
+- The follower count panel was removed on purpose; creator views do not require Twitch auth.
 - Google Trends uses `pytrends`, so Google rate limiting may still happen occasionally.
 - Switch between local MongoDB and Atlas by changing `MONGO_BACKEND` in `.env` from `local` to `atlas`.
 - If a Spark streaming checkpoint gets stale, bump `SPARK_CHECKPOINT_VERSION` instead of deleting all volumes.

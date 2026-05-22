@@ -1,9 +1,11 @@
 import os
+import re
 from datetime import datetime
 from typing import Any, Iterable
+from collections import defaultdict
 
 from dotenv import load_dotenv
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 from pymongo import MongoClient, DESCENDING, ASCENDING
 
@@ -60,10 +62,149 @@ def collect(cursor: Iterable[dict]) -> list[dict]:
     return list(cursor)
 
 
+def scope_for_collection(collection_name: str) -> str:
+    return "top100" if collection_name.endswith("_top100") else "targeted"
+
+
+def latest_snapshot_time(collection_name: str, scope: str) -> datetime | None:
+    doc = db_analytics[collection_name].find_one(
+        {"stream_scope": scope, "snapshot_at": {"$exists": True}},
+        {"_id": 0, "snapshot_at": 1},
+        sort=[("snapshot_at", DESCENDING)]
+    )
+    if not doc:
+        return None
+    return doc.get("snapshot_at")
+
+
+def latest_snapshot_docs(collection_name: str, label_field: str, value_field: str, scope: str, limit: int = 5) -> list[dict]:
+    latest_snapshot = latest_snapshot_time(collection_name, scope)
+    if latest_snapshot is None:
+        return []
+
+    return collect(
+        db_analytics[collection_name].find(
+            {"stream_scope": scope, "snapshot_at": latest_snapshot},
+            {"_id": 0, label_field: 1, value_field: 1, "snapshot_at": 1, "stream_scope": 1}
+        ).sort(value_field, DESCENDING).limit(limit)
+    )
+
+
+def latest_labels(collection_name: str, label_field: str, value_field: str, scope: str, limit: int = 5) -> list[str]:
+    docs = latest_snapshot_docs(collection_name, label_field, value_field, scope, limit)
+    return [str(d.get(label_field, "unknown")) for d in docs if d.get(label_field) is not None]
+
+
+def history_timeseries_response(
+    current_collection: str,
+    label_field: str,
+    value_field: str,
+    scope: str,
+    limit: int = 5,
+):
+    labels = latest_labels(current_collection, label_field, value_field, scope, limit)
+    if not labels:
+        return jsonify([])
+
+    docs = collect(
+        db_analytics[current_collection].find(
+            {"stream_scope": scope, label_field: {"$in": labels}},
+            {"_id": 0, label_field: 1, value_field: 1, "snapshot_at": 1, "stream_scope": 1}
+        ).sort([("snapshot_at", ASCENDING), (label_field, ASCENDING)])
+    )
+
+    result = []
+    for d in docs:
+        result.append({
+            "time": as_iso(d.get("snapshot_at")),
+            "series": d.get(label_field, "unknown"),
+            "value": as_int(d.get(value_field, 0)),
+            label_field: d.get(label_field, "unknown"),
+            value_field: as_int(d.get(value_field, 0)),
+            "scope": d.get("stream_scope", scope),
+        })
+
+    return jsonify(result)
+
+
+def messages_per_window_response(window_minutes: int = 60, negative_only: bool = False):
+    match_stage = {"$match": {"sentiment_score": {"$lt": -0.3}}} if negative_only else {}
+    pipeline = [
+        *([match_stage] if match_stage else []),
+        {
+            "$group": {
+                "_id": {
+                    "window": {
+                        "$dateToString": {
+                            "format": "%Y-%m-%dT%H:00:00",
+                            "date": "$timestamp"
+                        }
+                    },
+                    "channel": "$channel"
+                },
+                "messages": {"$sum": 1}
+            }
+        },
+        {"$sort": {"_id.window": 1}}
+    ]
+
+    field_name = "negative_messages" if negative_only else "messages"
+    result = []
+    for d in db_chat.raw_messages.aggregate(pipeline):
+        result.append({
+            "time": d["_id"]["window"],
+            "series": d["_id"].get("channel", "unknown"),
+            "value": as_int(d.get("messages", 0)),
+            "channel": d["_id"].get("channel", "unknown"),
+            field_name: as_int(d.get("messages", 0)),
+        })
+
+    return jsonify(result)
+
+
+def google_trends_comparison_response():
+    docs = collect(
+        db_trends.google_trends_interest_over_time.find(
+            {},
+            {"_id": 0, "keyword": 1, "timestamp": 1, "interest": 1}
+        ).sort([("keyword", ASCENDING), ("timestamp", ASCENDING)])
+    )
+
+    grouped: dict[str, list[dict]] = defaultdict(list)
+    for d in docs:
+        keyword = d.get("keyword", "unknown")
+        grouped[keyword].append(d)
+
+    result = []
+    for keyword, series in grouped.items():
+        first_interest = as_int(series[0].get("interest", 0)) if series else 0
+        last_interest = as_int(series[-1].get("interest", 0)) if series else 0
+        peak_interest = max((as_int(item.get("interest", 0)) for item in series), default=0)
+        avg_interest = round(sum(as_float(item.get("interest", 0)) for item in series) / max(len(series), 1), 2)
+        change = last_interest - first_interest
+        growth_pct = round((change / max(first_interest, 1)) * 100, 2) if series else 0.0
+
+        result.append({
+            "keyword": keyword,
+            "avg_interest": avg_interest,
+            "peak_interest": peak_interest,
+            "first_interest": first_interest,
+            "last_interest": last_interest,
+            "interest_change": change,
+            "interest_growth_pct": growth_pct,
+        })
+
+    return jsonify(sorted(result, key=lambda item: item["avg_interest"], reverse=True))
+
+
 def top_streamers_response(collection_name: str, limit: int = 20):
+    scope = scope_for_collection(collection_name)
+    latest_snapshot = latest_snapshot_time(collection_name, scope)
+    if latest_snapshot is None:
+        return jsonify([])
     docs = collect(
         db_analytics[collection_name].find(
-            {},
+            {"stream_scope": scope, "snapshot_at": latest_snapshot},
             {"_id": 0, "user_name": 1, "game_name": 1, "peak_viewers": 1}
         ).sort("peak_viewers", DESCENDING).limit(limit)
     )
@@ -79,9 +220,13 @@ def top_streamers_response(collection_name: str, limit: int = 20):
 
 
 def top_games_response(collection_name: str, limit: int = 20):
+    scope = scope_for_collection(collection_name)
+    latest_snapshot = latest_snapshot_time(collection_name, scope)
+    if latest_snapshot is None:
+        return jsonify([])
     docs = collect(
         db_analytics[collection_name].find(
-            {},
+            {"stream_scope": scope, "snapshot_at": latest_snapshot},
             {"_id": 0, "game_name": 1, "total_viewers": 1, "streams_count": 1}
         ).sort("total_viewers", DESCENDING).limit(limit)
     )
@@ -101,9 +246,17 @@ def top_games_response(collection_name: str, limit: int = 20):
 
 
 def trends_summary_response():
+    latest_collected_at = db_trends.google_trends_summary.find_one(
+        {},
+        {"_id": 0, "collected_at": 1},
+        sort=[("collected_at", DESCENDING)]
+    )
+    if not latest_collected_at:
+        return jsonify([])
+
     docs = collect(
         db_trends.google_trends_summary.find(
-            {},
+            {"collected_at": latest_collected_at.get("collected_at")},
             {"_id": 0, "keyword": 1, "avg_interest": 1, "peak_interest": 1, "last_interest": 1, "collected_at": 1}
         ).sort([("peak_interest", DESCENDING), ("avg_interest", DESCENDING)])
     )
@@ -125,7 +278,7 @@ def trends_interest_response(limit: int = 500):
         db_trends.google_trends_interest_over_time.find(
             {},
             {"_id": 0, "keyword": 1, "timestamp": 1, "interest": 1, "timeframe": 1, "geo": 1, "collected_at": 1}
-        ).sort("timestamp", ASCENDING).limit(limit)
+        ).sort([("timestamp", ASCENDING), ("keyword", ASCENDING)])
     )
 
     return jsonify([
@@ -133,8 +286,190 @@ def trends_interest_response(limit: int = 500):
             "keyword": d.get("keyword", "unknown"),
             "timestamp": as_iso(d.get("timestamp")),
             "interest": as_int(d.get("interest", 0)),
+            "series": d.get("keyword", "unknown"),
+            "value": as_int(d.get("interest", 0)),
             "timeframe": d.get("timeframe", ""),
             "geo": d.get("geo", ""),
+            "collected_at": as_iso(d.get("collected_at")),
+        }
+        for d in docs
+    ])
+
+
+def creator_regex(value: str) -> dict:
+    return {"$regex": f"^{re.escape(value.strip())}$", "$options": "i"}
+
+
+def latest_creator_snapshot(creator: str, scope: str = "targeted") -> dict | None:
+    return db_analytics.creator_stats.find_one(
+        {"user_name": creator_regex(creator), "stream_scope": scope},
+        sort=[("snapshot_at", DESCENDING)]
+    )
+
+
+def latest_channel_stats(channel: str) -> dict | None:
+    return db_chat.channel_stats.find_one(
+        {"channel": creator_regex(channel)},
+        sort=[("window.start", DESCENDING)]
+    )
+
+
+def creator_names() -> list[str]:
+    names = db_analytics.creator_stats.distinct("user_name", {"stream_scope": "targeted"})
+    if not names:
+        names = db_analytics.streamer_stats.distinct("user_name", {"stream_scope": "targeted"})
+    return sorted({str(name) for name in names if name}, key=lambda item: item.lower())
+
+
+def creator_summary_response(creator: str):
+    snapshot = latest_creator_snapshot(creator)
+    chat_stats = latest_channel_stats(creator)
+    trends_docs = collect(
+        db_trends.google_trends_interest_over_time.find(
+            {"keyword": creator_regex(creator)},
+            {"_id": 0, "keyword": 1, "timestamp": 1, "interest": 1}
+        ).sort([("timestamp", DESCENDING)]).limit(1)
+    )
+    latest_trend = trends_docs[0] if trends_docs else None
+
+    return jsonify([
+        {
+            "creator": creator,
+            "current_viewers": as_int(snapshot.get("current_viewers", 0)) if snapshot else 0,
+            "peak_viewers": as_int(snapshot.get("peak_viewers", 0)) if snapshot else 0,
+            "current_game": snapshot.get("game_name", "offline") if snapshot else "offline",
+            "current_title": snapshot.get("title", "OFFLINE") if snapshot else "OFFLINE",
+            "current_started_at": as_iso(snapshot.get("started_at")) if snapshot and snapshot.get("started_at") else None,
+            "message_count_5m": as_int(chat_stats.get("message_count", 0)) if chat_stats else 0,
+            "unique_chatters_5m": as_int(chat_stats.get("unique_chatters", 0)) if chat_stats else 0,
+            "avg_sentiment_5m": as_float(chat_stats.get("avg_sentiment", 0)) if chat_stats else 0.0,
+            "google_interest_latest": as_int(latest_trend.get("interest", 0)) if latest_trend else 0,
+        }
+    ])
+
+
+def creator_viewers_history_response(creator: str):
+    docs = collect(
+        db_analytics.creator_stats.find(
+            {"user_name": creator_regex(creator), "stream_scope": "targeted"},
+            {"_id": 0, "user_name": 1, "game_name": 1, "current_viewers": 1, "peak_viewers": 1, "snapshot_at": 1}
+        ).sort([("snapshot_at", ASCENDING)])
+    )
+
+    return jsonify([
+        {
+            "time": as_iso(d.get("snapshot_at")),
+            "series": d.get("user_name", creator),
+            "value": as_int(d.get("current_viewers", 0)),
+            "game": d.get("game_name", "unknown"),
+            "peak_viewers": as_int(d.get("peak_viewers", 0)),
+        }
+        for d in docs
+    ])
+
+
+def creator_recent_streams_response(creator: str, limit: int = 10):
+    docs = collect(
+        db_analytics.creator_stats.find(
+            {"user_name": creator_regex(creator), "stream_scope": "targeted"},
+            {"_id": 0, "user_name": 1, "game_name": 1, "title": 1, "started_at": 1, "current_viewers": 1, "peak_viewers": 1, "snapshot_at": 1}
+        ).sort([("snapshot_at", DESCENDING)]).limit(limit)
+    )
+
+    return jsonify([
+        {
+            "streamer": d.get("user_name", creator),
+            "game": d.get("game_name", "unknown"),
+            "title": d.get("title", ""),
+            "current_viewers": as_int(d.get("current_viewers", 0)),
+            "peak_viewers": as_int(d.get("peak_viewers", 0)),
+            "started_at": as_iso(d.get("started_at")) if d.get("started_at") else None,
+            "snapshot_at": as_iso(d.get("snapshot_at")),
+        }
+        for d in docs
+    ])
+
+
+def creator_games_response(creator: str):
+    docs = collect(
+        db_analytics.creator_stats.find(
+            {"user_name": creator_regex(creator), "stream_scope": "targeted"},
+            {"_id": 0, "game_name": 1, "snapshot_at": 1}
+        ).sort([("snapshot_at", DESCENDING)])
+    )
+
+    seen_games: set[str] = set()
+    result = []
+    for d in docs:
+        game_name = d.get("game_name", "unknown")
+        if game_name in seen_games:
+            continue
+        seen_games.add(game_name)
+        result.append({
+            "game": game_name,
+            "last_seen": as_iso(d.get("snapshot_at")),
+        })
+
+    return jsonify(result)
+
+
+def creator_chat_history_response(creator: str):
+    docs = collect(
+        db_chat.channel_stats.find(
+            {"channel": creator_regex(creator)},
+            {"_id": 0, "window.start": 1, "channel": 1, "avg_sentiment": 1, "message_count": 1, "unique_chatters": 1}
+        ).sort([("window.start", ASCENDING)])
+    )
+
+    return jsonify([
+        {
+            "time": as_iso(d.get("window", {}).get("start")),
+            "series": d.get("channel", creator),
+            "avg_sentiment": as_float(d.get("avg_sentiment", 0)),
+            "message_count": as_int(d.get("message_count", 0)),
+            "unique_chatters": as_int(d.get("unique_chatters", 0)),
+        }
+        for d in docs
+    ])
+
+
+def creator_top_chatters_response(creator: str, limit: int = 20):
+    pipeline = [
+        {"$match": {"channel": creator_regex(creator)}},
+        {
+            "$group": {
+                "_id": "$username",
+                "messages": {"$sum": 1},
+                "avg_sentiment": {"$avg": "$sentiment_score"},
+            }
+        },
+        {"$sort": {"messages": -1}},
+        {"$limit": limit},
+    ]
+    docs = collect(db_chat.raw_messages.aggregate(pipeline))
+    return jsonify([
+        {
+            "username": d.get("_id", "unknown"),
+            "messages": as_int(d.get("messages", 0)),
+            "avg_sentiment": round(as_float(d.get("avg_sentiment", 0)), 4),
+        }
+        for d in docs
+    ])
+
+
+def creator_trends_history_response(creator: str):
+    docs = collect(
+        db_trends.google_trends_interest_over_time.find(
+            {"keyword": creator_regex(creator)},
+            {"_id": 0, "keyword": 1, "timestamp": 1, "interest": 1, "collected_at": 1}
+        ).sort([("timestamp", ASCENDING)])
+    )
+
+    return jsonify([
+        {
+            "time": as_iso(d.get("timestamp")),
+            "series": d.get("keyword", creator),
+            "value": as_int(d.get("interest", 0)),
             "collected_at": as_iso(d.get("collected_at")),
         }
         for d in docs
@@ -147,22 +482,35 @@ def home():
         "status": "ok",
         "service": "BigData Mongo API",
         "databases": {
-            ANALYTICS_DB: ["top_games", "streamer_stats", "top_games_top100", "streamer_stats_top100"],
+            ANALYTICS_DB: ["top_games", "streamer_stats", "creator_stats", "top_games_top100", "streamer_stats_top100"],
             CHAT_DB: ["channel_stats", "raw_messages"],
             TRENDS_DB: ["google_trends_summary", "google_trends_interest_over_time"],
         },
         "endpoints": [
             "/top_streamers",
             "/top_streamers_top100",
+            "/top_streamers_history",
             "/top_games",
             "/top_games_top100",
+            "/top_games_history",
             "/sentiment_over_time",
             "/messages_per_minute",
+            "/messages_per_hour",
+            "/negative_messages_per_hour",
             "/top_chatters",
             "/negative_messages",
             "/channel_summary",
             "/subscribers_vs_normal",
+            "/creators",
+            "/creator_summary",
+            "/creator_viewers_history",
+            "/creator_recent_streams",
+            "/creator_games",
+            "/creator_chat_history",
+            "/creator_top_chatters",
+            "/creator_trends_history",
             "/google_trends_summary",
+            "/google_trends_comparison",
             "/google_trends_interest_over_time",
         ]
     })
@@ -171,6 +519,55 @@ def home():
 @app.route("/health")
 def health():
     return jsonify({"status": "ok"})
+
+
+@app.route("/creators")
+def creators():
+    return jsonify(creator_names())
+
+
+@app.route("/creator_summary")
+def creator_summary():
+    creator = request.args.get("creator", "")
+    return creator_summary_response(creator)
+
+
+@app.route("/creator_viewers_history")
+def creator_viewers_history():
+    creator = request.args.get("creator", "")
+    return creator_viewers_history_response(creator)
+
+
+@app.route("/creator_recent_streams")
+def creator_recent_streams():
+    creator = request.args.get("creator", "")
+    limit = int(request.args.get("limit", "10"))
+    return creator_recent_streams_response(creator, limit=limit)
+
+
+@app.route("/creator_games")
+def creator_games():
+    creator = request.args.get("creator", "")
+    return creator_games_response(creator)
+
+
+@app.route("/creator_chat_history")
+def creator_chat_history():
+    creator = request.args.get("creator", "")
+    return creator_chat_history_response(creator)
+
+
+@app.route("/creator_top_chatters")
+def creator_top_chatters():
+    creator = request.args.get("creator", "")
+    limit = int(request.args.get("limit", "20"))
+    return creator_top_chatters_response(creator, limit=limit)
+
+
+@app.route("/creator_trends_history")
+def creator_trends_history():
+    creator = request.args.get("creator", "")
+    return creator_trends_history_response(creator)
 
 
 @app.route("/top_streamers")
@@ -193,6 +590,26 @@ def top_games_top100():
     return top_games_response("top_games_top100")
 
 
+@app.route("/top_games_history")
+def top_games_history():
+    return history_timeseries_response("top_games", "game_name", "total_viewers", "targeted")
+
+
+@app.route("/top_games_history_top100")
+def top_games_history_top100():
+    return history_timeseries_response("top_games_top100", "game_name", "total_viewers", "top100")
+
+
+@app.route("/top_streamers_history")
+def top_streamers_history():
+    return history_timeseries_response("streamer_stats", "user_name", "peak_viewers", "targeted")
+
+
+@app.route("/top_streamers_history_top100")
+def top_streamers_history_top100():
+    return history_timeseries_response("streamer_stats_top100", "user_name", "peak_viewers", "top100")
+
+
 @app.route("/sentiment_over_time")
 def sentiment_over_time():
     docs = collect(
@@ -209,6 +626,8 @@ def sentiment_over_time():
             "time": as_iso(window.get("start")),
             "channel": d.get("channel", "unknown"),
             "avg_sentiment": as_float(d.get("avg_sentiment", 0)),
+            "series": d.get("channel", "unknown"),
+            "value": as_float(d.get("avg_sentiment", 0)),
         })
 
     return jsonify(result)
@@ -216,13 +635,18 @@ def sentiment_over_time():
 
 @app.route("/messages_per_minute")
 def messages_per_minute():
+    return messages_per_window_response(window_minutes=1)
+
+
+@app.route("/messages_per_hour")
+def messages_per_hour():
     pipeline = [
         {
             "$group": {
                 "_id": {
-                    "minute": {
+                    "hour": {
                         "$dateToString": {
-                            "format": "%Y-%m-%dT%H:%M:00",
+                            "format": "%Y-%m-%dT%H:00:00",
                             "date": "$timestamp"
                         }
                     },
@@ -231,13 +655,15 @@ def messages_per_minute():
                 "messages": {"$sum": 1}
             }
         },
-        {"$sort": {"_id.minute": 1}}
+        {"$sort": {"_id.hour": 1}}
     ]
 
     result = []
     for d in db_chat.raw_messages.aggregate(pipeline):
         result.append({
-            "time": d["_id"]["minute"],
+            "time": d["_id"]["hour"],
+            "series": d["_id"].get("channel", "unknown"),
+            "value": as_int(d.get("messages", 0)),
             "channel": d["_id"].get("channel", "unknown"),
             "messages": as_int(d.get("messages", 0)),
         })
@@ -270,16 +696,35 @@ def top_chatters():
     return jsonify(result)
 
 
+@app.route("/unique_chat_users")
+def unique_chat_users():
+    pipeline = [
+        {"$group": {"_id": "$username"}},
+        {"$count": "unique_users"},
+    ]
+
+    result = list(db_chat.raw_messages.aggregate(pipeline))
+    if not result:
+        return jsonify([{"unique_users": 0}])
+
+    return jsonify(result)
+
+
 @app.route("/negative_messages")
 def negative_messages():
+    return messages_per_window_response(window_minutes=1, negative_only=True)
+
+
+@app.route("/negative_messages_per_hour")
+def negative_messages_per_hour():
     pipeline = [
         {"$match": {"sentiment_score": {"$lt": -0.3}}},
         {
             "$group": {
                 "_id": {
-                    "minute": {
+                    "hour": {
                         "$dateToString": {
-                            "format": "%Y-%m-%dT%H:%M:00",
+                            "format": "%Y-%m-%dT%H:00:00",
                             "date": "$timestamp"
                         }
                     },
@@ -288,13 +733,15 @@ def negative_messages():
                 "negative_messages": {"$sum": 1}
             }
         },
-        {"$sort": {"_id.minute": 1}}
+        {"$sort": {"_id.hour": 1}}
     ]
 
     result = []
     for d in db_chat.raw_messages.aggregate(pipeline):
         result.append({
-            "time": d["_id"]["minute"],
+            "time": d["_id"]["hour"],
+            "series": d["_id"].get("channel", "unknown"),
+            "value": as_int(d.get("negative_messages", 0)),
             "channel": d["_id"].get("channel", "unknown"),
             "negative_messages": as_int(d.get("negative_messages", 0)),
         })
@@ -304,7 +751,9 @@ def negative_messages():
 
 @app.route("/channel_summary")
 def channel_summary():
+    channel = request.args.get("channel", "").strip()
     pipeline = [
+        *([{"$match": {"channel": creator_regex(channel)}}] if channel else []),
         {
             "$group": {
                 "_id": "$channel",
@@ -345,7 +794,9 @@ def channel_summary():
 
 @app.route("/subscribers_vs_normal")
 def subscribers_vs_normal():
+    channel = request.args.get("channel", "").strip()
     pipeline = [
+        *([{"$match": {"channel": creator_regex(channel)}}] if channel else []),
         {
             "$project": {
                 "sentiment_score": 1,
@@ -381,6 +832,11 @@ def subscribers_vs_normal():
 @app.route("/google_trends_summary")
 def google_trends_summary():
     return trends_summary_response()
+
+
+@app.route("/google_trends_comparison")
+def google_trends_comparison():
+    return google_trends_comparison_response()
 
 
 @app.route("/google_trends_interest_over_time")

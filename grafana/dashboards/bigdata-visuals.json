@@ -1,0 +1,322 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "description": "Single overview dashboard for Twitch, chat, and Google Trends analytics.",
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "bigdata-api"},
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "gridPos": {"h": 2, "w": 24, "x": 0, "y": 0},
+      "id": 1,
+      "options": {"content": "<div style=\"margin:0;padding:4px 0\"><h2 style=\"margin:0;font-size:20px\">System Data</h2><div style=\"margin-top:4px;font-size:12px;color:var(--text-muted)\">Core platform metrics and subscriber-vs-normal comparisons.</div></div>", "mode": "markdown"},
+      "title": "",
+      "type": "text"
+    },
+    {
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "bigdata-api"},
+      "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 1000}, {"color": "red", "value": 5000}], "color": {"mode": "palette-classic"}}}, "overrides": []},
+      "gridPos": {"h": 4, "w": 5, "x": 0, "y": 2},
+      "id": 11,
+      "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "percentChangeColorMode": "standard", "reduceOptions": {"calcs": ["sum"], "fields": "/^viewers$/", "values": false}, "showPercentChange": false, "textMode": "value", "wideLayout": true},
+      "targets": [{"type": "json", "source": "url", "url": "http://mongo-api:5000/top_games", "url_options": {"method": "GET", "data": ""}, "format": "table", "root_selector": "", "global_query_id": "", "refId": "A"}],
+      "title": "TOTAL TOP-GAME VIEWERS",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "bigdata-api"},
+      "fieldConfig": {"defaults": {"unit": "none", "decimals": 0, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 100}, {"color": "red", "value": 1000}], "color": {"mode": "palette-classic"}}}, "overrides": []},
+      "gridPos": {"h": 4, "w": 5, "x": 5, "y": 2},
+      "id": 12,
+      "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "percentChangeColorMode": "standard", "reduceOptions": {"calcs": ["sum"], "fields": "/^streams$/", "values": false}, "showPercentChange": false, "textMode": "value", "wideLayout": true},
+      "targets": [{"type": "json", "source": "url", "url": "http://mongo-api:5000/top_games", "url_options": {"method": "GET", "data": ""}, "format": "table", "root_selector": "", "global_query_id": "", "refId": "A"}],
+      "title": "TOTAL STREAMS",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "bigdata-api"},
+      "fieldConfig": {"defaults": {"unit": "none", "decimals": 4, "thresholds": {"mode": "absolute", "steps": [{"color": "red", "value": null}, {"color": "yellow", "value": -0.1}, {"color": "green", "value": 0.1}], "color": {"mode": "palette-classic"}}}, "overrides": []},
+      "gridPos": {"h": 4, "w": 5, "x": 10, "y": 2},
+      "id": 13,
+      "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "percentChangeColorMode": "standard", "reduceOptions": {"calcs": ["mean"], "fields": "/^avg_sentiment$/", "values": false}, "showPercentChange": false, "textMode": "value", "wideLayout": true},
+      "targets": [{"type": "json", "source": "url", "url": "http://mongo-api:5000/channel_summary", "url_options": {"method": "GET", "data": ""}, "format": "table", "root_selector": "", "global_query_id": "", "refId": "A"}],
+      "title": "AVERAGE CHAT SENTIMENT",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "bigdata-api"},
+      "fieldConfig": {"defaults": {"unit": "none", "decimals": 0, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 10000}, {"color": "red", "value": 100000}], "color": {"mode": "palette-classic"}}}, "overrides": []},
+      "gridPos": {"h": 4, "w": 5, "x": 15, "y": 2},
+      "id": 14,
+      "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "percentChangeColorMode": "standard", "reduceOptions": {"calcs": ["sum"], "fields": "/^messages$/", "values": false}, "showPercentChange": false, "textMode": "value", "wideLayout": true},
+      "targets": [{"type": "json", "source": "url", "url": "http://mongo-api:5000/channel_summary", "url_options": {"method": "GET", "data": ""}, "format": "table", "root_selector": "", "global_query_id": "", "refId": "A"}],
+      "title": "TOTAL CHAT MESSAGES",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "bigdata-api"},
+      "fieldConfig": {"defaults": {"unit": "none", "decimals": 0, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "yellow", "value": 1000}, {"color": "red", "value": 10000}], "color": {"mode": "palette-classic"}}}, "overrides": []},
+      "gridPos": {"h": 4, "w": 4, "x": 20, "y": 2},
+      "id": 15,
+      "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "percentChangeColorMode": "standard", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^unique_users$/", "values": false}, "showPercentChange": false, "textMode": "value", "wideLayout": true},
+      "targets": [{"type": "json", "source": "url", "url": "http://mongo-api:5000/unique_chat_users", "url_options": {"method": "GET", "data": ""}, "format": "table", "root_selector": "", "global_query_id": "", "refId": "A"}],
+      "title": "UNIQUE CHAT USERS",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "bigdata-api"},
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "gridPos": {"h": 2, "w": 24, "x": 0, "y": 10},
+      "id": 2,
+      "options": {"content": "<div style=\"margin:0;padding:4px 0\"><h2 style=\"margin:0;font-size:20px\">Global Data</h2><div style=\"margin-top:4px;font-size:12px;color:var(--text-muted)\">Top-level comparisons across the whole stream corpus.</div></div>", "mode": "markdown"},
+      "title": "",
+      "type": "text"
+    },
+    {
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "bigdata-api"},
+      "fieldConfig": {"defaults": {"unit": "short", "color": {"mode": "fixed", "fixedColor": "#00E5FF"}, "custom": {"lineWidth": 3, "fillOpacity": 18, "showPoints": "never"}}, "overrides": []},
+      "gridPos": {"h": 12, "w": 24, "x": 0, "y": 14},
+      "id": 20,
+      "options": {"barRadius": 0, "barWidth": 0.85, "colorByField": "viewers", "fullHighlight": false, "groupWidth": 0.7, "legend": {"calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": false}, "orientation": "horizontal", "showValue": "auto", "stacking": "none", "tooltip": {"hideZeros": false, "mode": "single", "sort": "none"}, "xField": "game", "xTickLabelRotation": 0, "xTickLabelSpacing": 0},
+      "targets": [{"type": "json", "source": "url", "url": "http://mongo-api:5000/top_games_top100", "url_options": {"method": "GET", "data": ""}, "format": "table", "root_selector": "", "global_query_id": "", "refId": "A"}],
+      "title": "Top Games (Top 100)",
+      "type": "barchart"
+    },
+    {
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "bigdata-api"},
+      "fieldConfig": {"defaults": {"unit": "short", "color": {"mode": "palette-classic"}}, "overrides": []},
+      "gridPos": {"h": 12, "w": 24, "x": 0, "y": 26},
+      "id": 21,
+      "options": {"barRadius": 0, "barWidth": 0.85, "colorByField": "viewers", "fullHighlight": false, "groupWidth": 0.7, "legend": {"calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": false}, "orientation": "horizontal", "showValue": "auto", "stacking": "none", "tooltip": {"hideZeros": false, "mode": "single", "sort": "none"}, "xField": "streamer", "xTickLabelRotation": 0, "xTickLabelSpacing": 0},
+      "targets": [{"type": "json", "source": "url", "url": "http://mongo-api:5000/top_streamers_top100", "url_options": {"method": "GET", "data": ""}, "format": "table", "root_selector": "", "global_query_id": "", "refId": "A"}],
+      "title": "Top Streamers (Top 100)",
+      "type": "barchart"
+    },
+    {
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "bigdata-api"},
+      "fieldConfig": {"defaults": {}, "overrides": []},
+      "gridPos": {"h": 2, "w": 24, "x": 0, "y": 38},
+      "id": 3,
+      "options": {"content": "<div style=\"margin:0;padding:4px 0\"><h2 style=\"margin:0;font-size:20px\">Creator Data</h2><div style=\"margin-top:4px;font-size:12px;color:var(--text-muted)\">Per-creator metrics and time series for the selected streamer.</div></div>", "mode": "markdown"},
+      "title": "",
+      "type": "text"
+    },
+    {
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "bigdata-api"},
+      "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 100}, {"color": "red", "value": 1000}]}, "color": {"mode": "palette-classic"}}, "overrides": []},
+      "gridPos": {"h": 4, "w": 4, "x": 0, "y": 40},
+      "id": 23,
+      "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "percentChangeColorMode": "standard", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^current_viewers$/", "values": false}, "showPercentChange": false, "textMode": "value", "wideLayout": true},
+      "targets": [{"type": "json", "source": "url", "url": "http://mongo-api:5000/creator_summary?creator=$creator", "url_options": {"method": "GET", "data": ""}, "format": "table", "root_selector": "", "global_query_id": "", "refId": "A"}],
+      "title": "Current Viewers",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "bigdata-api"},
+      "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 1000}, {"color": "red", "value": 5000}]}}, "overrides": []},
+      "gridPos": {"h": 4, "w": 4, "x": 4, "y": 40},
+      "id": 24,
+      "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "percentChangeColorMode": "standard", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^peak_viewers$/", "values": false}, "showPercentChange": false, "textMode": "value", "wideLayout": true},
+      "targets": [{"type": "json", "source": "url", "url": "http://mongo-api:5000/creator_summary?creator=$creator", "url_options": {"method": "GET", "data": ""}, "format": "table", "root_selector": "", "global_query_id": "", "refId": "A"}],
+      "title": "Peak Viewers",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "bigdata-api"},
+      "fieldConfig": {"defaults": {"unit": "short", "decimals": 0}, "overrides": []},
+      "gridPos": {"h": 4, "w": 4, "x": 8, "y": 40},
+      "id": 25,
+      "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "percentChangeColorMode": "standard", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^unique_chatters_5m$/", "values": false}, "showPercentChange": false, "textMode": "value", "wideLayout": true},
+      "targets": [{"type": "json", "source": "url", "url": "http://mongo-api:5000/creator_summary?creator=$creator", "url_options": {"method": "GET", "data": ""}, "format": "table", "root_selector": "", "global_query_id": "", "refId": "A"}],
+      "title": "Unique Chatters (5m)",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "bigdata-api"},
+      "fieldConfig": {"defaults": {"unit": "short", "decimals": 0}, "overrides": []},
+      "gridPos": {"h": 4, "w": 4, "x": 12, "y": 40},
+      "id": 26,
+      "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "percentChangeColorMode": "standard", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^message_count_5m$/", "values": false}, "showPercentChange": false, "textMode": "value", "wideLayout": true},
+      "targets": [{"type": "json", "source": "url", "url": "http://mongo-api:5000/creator_summary?creator=$creator", "url_options": {"method": "GET", "data": ""}, "format": "table", "root_selector": "", "global_query_id": "", "refId": "A"}],
+      "title": "Message Count (5m)",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "bigdata-api"},
+      "fieldConfig": {"defaults": {"unit": "short", "decimals": 4}, "overrides": []},
+      "gridPos": {"h": 4, "w": 4, "x": 16, "y": 40},
+      "id": 27,
+      "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "percentChangeColorMode": "standard", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^avg_sentiment_5m$/", "values": false}, "showPercentChange": false, "textMode": "value", "wideLayout": true},
+      "targets": [{"type": "json", "source": "url", "url": "http://mongo-api:5000/creator_summary?creator=$creator", "url_options": {"method": "GET", "data": ""}, "format": "table", "root_selector": "", "global_query_id": "", "refId": "A"}],
+      "title": "Avg Sentiment (5m)",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "bigdata-api"},
+      "fieldConfig": {"defaults": {"unit": "short", "decimals": 0}, "overrides": []},
+      "gridPos": {"h": 4, "w": 4, "x": 20, "y": 40},
+      "id": 28,
+      "options": {"colorMode": "value", "graphMode": "area", "justifyMode": "auto", "orientation": "auto", "percentChangeColorMode": "standard", "reduceOptions": {"calcs": ["lastNotNull"], "fields": "/^google_interest_latest$/", "values": false}, "showPercentChange": false, "textMode": "value", "wideLayout": true},
+      "targets": [{"type": "json", "source": "url", "url": "http://mongo-api:5000/creator_summary?creator=$creator", "url_options": {"method": "GET", "data": ""}, "format": "table", "root_selector": "", "global_query_id": "", "refId": "A"}],
+      "title": "Google Interest (Latest)",
+      "type": "stat"
+    },
+    {
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "bigdata-api"},
+      "fieldConfig": {"defaults": {"unit": "short", "color": {"mode": "palette-classic"}, "custom": {"lineWidth": 3, "fillOpacity": 18, "showPoints": "never"}}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 44},
+      "id": 29,
+      "options": {"legend": {"calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "single"}},
+      "targets": [{"type": "json", "source": "url", "url": "http://mongo-api:5000/creator_viewers_history?creator=$creator", "url_options": {"method": "GET", "data": ""}, "format": "timeseries", "root_selector": "", "global_query_id": "", "refId": "A"}],
+      "title": "Viewers Over Time",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "bigdata-api"},
+      "fieldConfig": {"defaults": {"unit": "short", "color": {"mode": "palette-classic"}, "custom": {"lineWidth": 3, "fillOpacity": 18, "showPoints": "never"}}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 44},
+      "id": 30,
+      "options": {"legend": {"calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "single"}},
+      "targets": [{"type": "json", "source": "url", "url": "http://mongo-api:5000/creator_chat_history?creator=$creator", "url_options": {"method": "GET", "data": ""}, "format": "timeseries", "root_selector": "", "global_query_id": "", "refId": "A"}],
+      "title": "Chat Sentiment / Volume Over Time",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "bigdata-api"},
+      "fieldConfig": {"defaults": {"unit": "short", "color": {"mode": "palette-classic"}, "custom": {"lineWidth": 3, "fillOpacity": 18, "showPoints": "never"}}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 52},
+      "id": 31,
+      "options": {"legend": {"calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "single"}},
+      "targets": [{"type": "json", "source": "url", "url": "http://mongo-api:5000/creator_trends_history?creator=$creator", "url_options": {"method": "GET", "data": ""}, "format": "timeseries", "root_selector": "", "global_query_id": "", "refId": "A"}],
+      "title": "Google Trends Interest Over Time",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "bigdata-api"},
+      "fieldConfig": {"defaults": {"unit": "short", "color": {"mode": "palette-classic"}}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 52},
+      "id": 32,
+      "options": {"barRadius": 0, "barWidth": 0.85, "colorByField": "messages", "fullHighlight": false, "groupWidth": 0.7, "legend": {"calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": false}, "orientation": "horizontal", "showValue": "auto", "stacking": "none", "tooltip": {"hideZeros": false, "mode": "single", "sort": "none"}, "xField": "username", "xTickLabelRotation": 0, "xTickLabelSpacing": 0},
+      "targets": [{"type": "json", "source": "url", "url": "http://mongo-api:5000/creator_top_chatters?creator=$creator", "url_options": {"method": "GET", "data": ""}, "format": "table", "root_selector": "", "global_query_id": "", "refId": "A"}],
+      "title": "Top Chatters",
+      "type": "barchart"
+    },
+    {
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "bigdata-api"},
+      "fieldConfig": {"defaults": {"unit": "short", "color": {"mode": "palette-classic"}}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 60},
+      "id": 33,
+      "options": {"showHeader": true},
+      "targets": [{"type": "json", "source": "url", "url": "http://mongo-api:5000/creator_recent_streams?creator=$creator", "url_options": {"method": "GET", "data": ""}, "format": "table", "root_selector": "", "global_query_id": "", "refId": "A"}],
+      "title": "Recent Streams",
+      "type": "table"
+    },
+    {
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "bigdata-api"},
+      "fieldConfig": {"defaults": {"unit": "short", "color": {"mode": "palette-classic"}}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 60},
+      "id": 34,
+      "options": {"showHeader": true},
+      "targets": [{"type": "json", "source": "url", "url": "http://mongo-api:5000/creator_games?creator=$creator", "url_options": {"method": "GET", "data": ""}, "format": "table", "root_selector": "", "global_query_id": "", "refId": "A"}],
+      "title": "Games Played",
+      "type": "table"
+    },
+    {
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "bigdata-api"},
+      "fieldConfig": {"defaults": {"unit": "short", "color": {"mode": "palette-classic"}}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 68},
+      "id": 35,
+      "options": {"barRadius": 0, "barWidth": 0.85, "colorByField": "messages", "fullHighlight": false, "groupWidth": 0.7, "legend": {"calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": false}, "orientation": "vertical", "showValue": "auto", "stacking": "none", "tooltip": {"hideZeros": false, "mode": "single", "sort": "none"}, "xField": "user_type", "xTickLabelRotation": 0, "xTickLabelSpacing": 0},
+      "targets": [{"type": "json", "source": "url", "url": "http://mongo-api:5000/subscribers_vs_normal?channel=$creator", "url_options": {"method": "GET", "data": ""}, "format": "table", "root_selector": "", "global_query_id": "", "refId": "A"}],
+      "title": "Subscribers vs Normal Users - Message Count",
+      "type": "barchart"
+    },
+    {
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "bigdata-api"},
+      "fieldConfig": {"defaults": {"unit": "short", "color": {"mode": "palette-classic"}}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 68},
+      "id": 36,
+      "options": {"barRadius": 0, "barWidth": 0.85, "colorByField": "avg_sentiment", "fullHighlight": false, "groupWidth": 0.7, "legend": {"calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": false}, "orientation": "vertical", "showValue": "auto", "stacking": "none", "tooltip": {"hideZeros": false, "mode": "single", "sort": "none"}, "xField": "user_type", "xTickLabelRotation": 0, "xTickLabelSpacing": 0},
+      "targets": [{"type": "json", "source": "url", "url": "http://mongo-api:5000/subscribers_vs_normal?channel=$creator", "url_options": {"method": "GET", "data": ""}, "format": "table", "root_selector": "", "global_query_id": "", "refId": "A"}],
+      "title": "Subscribers vs Normal Users - Avg Sentiment",
+      "type": "barchart"
+    }
+  ],
+  "refresh": "30s",
+  "schemaVersion": 39,
+  "style": "dark",
+  "tags": [
+    "bigdata",
+    "twitch",
+    "google-trends",
+    "visuals"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "selected": true,
+          "text": "NICKMERCS",
+          "value": "NICKMERCS"
+        },
+        "hide": 0,
+        "includeAll": false,
+        "label": "Creator",
+        "multi": false,
+        "name": "creator",
+        "options": [
+          {"text": "drlupo", "value": "drlupo", "selected": false},
+          {"text": "hasanabi", "value": "hasanabi", "selected": false},
+          {"text": "lirik", "value": "lirik", "selected": false},
+          {"text": "ludwig", "value": "ludwig", "selected": false},
+          {"text": "mizkif", "value": "mizkif", "selected": false},
+          {"text": "moistcr1tikal", "value": "moistcr1tikal", "selected": false},
+          {"text": "NICKMERCS", "value": "NICKMERCS", "selected": true},
+          {"text": "ninja", "value": "ninja", "selected": false},
+          {"text": "pokimane", "value": "pokimane", "selected": false},
+          {"text": "shroud", "value": "shroud", "selected": false},
+          {"text": "sodapoppin", "value": "sodapoppin", "selected": false},
+          {"text": "sovietwomble", "value": "sovietwomble", "selected": false},
+          {"text": "summit1g", "value": "summit1g", "selected": false},
+          {"text": "timthetatman", "value": "timthetatman", "selected": false},
+          {"text": "xqc", "value": "xqc", "selected": false}
+        ],
+        "query": "drlupo,hasanabi,lirik,ludwig,mizkif,moistcr1tikal,NICKMERCS,ninja,pokimane,shroud,sodapoppin,sovietwomble,summit1g,timthetatman,xqc",
+        "skipUrlSync": false,
+        "type": "custom",
+        "datasource": {
+          "type": "yesoreyeram-infinity-datasource",
+          "uid": "bigdata-api"
+        }
+      }
+    ]
+  },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "BigData Overview",
+  "uid": "bigdata-visuals",
+  "version": 1,
+  "weekStart": ""
+}

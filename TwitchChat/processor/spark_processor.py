@@ -2,7 +2,7 @@ import os
 import sys
 
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, from_json, udf, window, avg
+from pyspark.sql.functions import col, from_json, udf, window, avg, count, approx_count_distinct
 from pyspark.sql.types import StructType, StringType, DoubleType
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
@@ -12,7 +12,7 @@ MONGO_URI_LOCAL = os.getenv("MONGO_URI_LOCAL", "mongodb://mongodb:27017")
 MONGO_URI_ATLAS = os.getenv("MONGO_URI", "")
 MONGODB_DB = os.getenv("MONGODB_DB_CHAT", "twitch_chat")
 KAFKA_TOPIC = os.getenv("KAFKA_TOPIC_TWITCH_CHAT", "twitch_chat_stream")
-WINDOW_MINUTES = int(os.getenv("SENTIMENT_WINDOW_MINUTES", "1"))
+WINDOW_MINUTES = int(os.getenv("SENTIMENT_WINDOW_MINUTES", "5"))
 CHECKPOINT_VERSION = os.getenv("SPARK_CHECKPOINT_VERSION", "v1")
 
 
@@ -87,7 +87,11 @@ def main():
         .groupBy(
             window(col("timestamp"), f"{WINDOW_MINUTES} minute"),
             col("channel")
-        ).agg(avg("sentiment_score").alias("avg_sentiment"))
+        ).agg(
+            avg("sentiment_score").alias("avg_sentiment"),
+            count("*").alias("message_count"),
+            approx_count_distinct("username").alias("unique_chatters"),
+        )
 
     def write_stats_to_mongo(batch_df, epoch_id):
         if batch_df.count() > 0:

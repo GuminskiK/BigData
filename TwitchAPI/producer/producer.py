@@ -74,32 +74,49 @@ def fetch_and_send_streams():
         response.raise_for_status()
         streams = response.json()["data"]
 
-        if not streams:
-            print("No live streams found for the configured Twitch channels.")
-            return
-
         collected_at = datetime.now(timezone.utc).isoformat()
 
-        def send_stream_record(stream, stream_scope, rank=None):
+        def send_stream_record(stream, stream_scope, rank=None, is_live=True):
             data = {
-                "stream_id": stream["id"],
-                "user_id": stream["user_id"],
-                "user_name": stream["user_name"],
-                "game_id": stream["game_id"],
-                "game_name": stream["game_name"],
-                "title": stream["title"],
-                "viewer_count": stream["viewer_count"],
-                "language": stream["language"],
-                "started_at": stream["started_at"],
+                "stream_id": stream.get("id"),
+                "user_id": stream.get("user_id"),
+                "user_name": stream.get("user_name"),
+                "game_id": stream.get("game_id"),
+                "game_name": stream.get("game_name"),
+                "title": stream.get("title"),
+                "viewer_count": stream.get("viewer_count", 0),
+                "language": stream.get("language"),
+                "started_at": stream.get("started_at"),
                 "collected_at": collected_at,
                 "stream_scope": stream_scope,
                 "rank": rank,
+                "is_live": is_live,
             }
             producer.send(TOPIC_NAME, value=data)
 
         targeted_count = 0
-        for stream in streams:
-            send_stream_record(stream, "targeted")
+        streams_by_user = {stream.get("user_login", stream.get("user_name", "")).lower(): stream for stream in streams}
+        for channel in TWITCH_CHANNELS:
+            stream = streams_by_user.get(channel.lower())
+            if stream:
+                send_stream_record(stream, "targeted", is_live=True)
+            else:
+                send_stream_record(
+                    {
+                        "id": None,
+                        "user_id": None,
+                        "user_name": channel,
+                        "game_id": None,
+                        "game_name": "Offline",
+                        "title": "OFFLINE",
+                        "viewer_count": 0,
+                        "language": None,
+                        "started_at": None,
+                        "user_login": channel,
+                    },
+                    "targeted",
+                    is_live=False,
+                )
             targeted_count += 1
 
         params = [("first", 100)]
