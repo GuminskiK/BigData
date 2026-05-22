@@ -27,7 +27,7 @@
       "fieldConfig": {"defaults": {}, "overrides": []},
       "gridPos": {"h": 2, "w": 24, "x": 0, "y": 0},
       "id": 1,
-      "options": {"content": "<div style=\"margin:0;padding:4px 0\"><h2 style=\"margin:0;font-size:20px\">System Data</h2><div style=\"margin-top:4px;font-size:12px;color:var(--text-muted)\">Core platform metrics and subscriber-vs-normal comparisons.</div></div>", "mode": "markdown"},
+      "options": {"content": "<div style=\"margin:0;padding:4px 0\"><h2 style=\"margin:0;font-size:20px\">System Data</h2><div style=\"margin-top:4px;font-size:12px;color:var(--text-muted)\">Core platform metrics.</div></div>", "mode": "markdown"},
       "title": "",
       "type": "text"
     },
@@ -185,7 +185,35 @@
       "gridPos": {"h": 8, "w": 12, "x": 0, "y": 44},
       "id": 29,
       "options": {"legend": {"calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "single"}},
-      "targets": [{"type": "json", "source": "url", "url": "http://mongo-api:5000/creator_viewers_history?creator=$creator", "url_options": {"method": "GET", "data": ""}, "format": "timeseries", "root_selector": "", "global_query_id": "", "refId": "A"}],
+      "targets": [
+        {
+            "type": "json", 
+            "source": "url", 
+            "url": "http://mongo-api:5000/creator_viewers_history?creator=$creator", 
+            "url_options": {"method": "GET", "data": ""}, 
+            "format": "table", 
+            "root_selector": "$", 
+            "global_query_id": "", 
+            "refId": "A",
+            "columns": [
+            {
+                "selector": "time",
+                "text": "time",
+                "type": "timestamp"
+            },
+            {
+                "selector": "value",
+                "text": "value",
+                "type": "number"
+            },
+            {
+                "selector": "series",
+                "text": "series",
+                "type": "string"
+            }
+            ]
+        }
+        ],
       "title": "Viewers Over Time",
       "type": "timeseries"
     },
@@ -195,8 +223,74 @@
       "gridPos": {"h": 8, "w": 12, "x": 12, "y": 44},
       "id": 30,
       "options": {"legend": {"calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "single"}},
-      "targets": [{"type": "json", "source": "url", "url": "http://mongo-api:5000/creator_chat_history?creator=$creator", "url_options": {"method": "GET", "data": ""}, "format": "timeseries", "root_selector": "", "global_query_id": "", "refId": "A"}],
-      "title": "Chat Sentiment / Volume Over Time",
+      "targets": [
+        {
+            "type": "json",
+            "source": "url",
+            "url": "http://mongo-api:5000/creator_chat_history?creator=$creator",
+            "url_options": { "method": "GET", "data": "" },
+            "format": "table",
+            "root_selector": "$",
+            "global_query_id": "",
+            "refId": "A",
+            "columns": [
+            {
+                "selector": "time",
+                "text": "time",
+                "type": "timestamp"
+            },
+            {
+                "selector": "message_count",
+                "text": "message_count",
+                "type": "number"
+            },
+            {
+                "selector": "series",
+                "text": "series",
+                "type": "string"
+            }
+            ]
+        }
+        ],
+      "title": "Chat Volume Over Time",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {"type": "yesoreyeram-infinity-datasource", "uid": "bigdata-api"},
+      "fieldConfig": {"defaults": {"unit": "short", "color": {"mode": "palette-classic"}, "custom": {"lineWidth": 3, "fillOpacity": 18, "showPoints": "never"}}, "overrides": []},
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 44},
+      "id": 37,
+      "options": {"legend": {"calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "single"}},
+      "targets": [
+        {
+            "type": "json",
+            "source": "url",
+            "url": "http://mongo-api:5000/creator_chat_history?creator=$creator",
+            "url_options": { "method": "GET", "data": "" },
+            "format": "table",
+            "root_selector": "$",
+            "global_query_id": "",
+            "refId": "A",
+            "columns": [
+            {
+                "selector": "time",
+                "text": "time",
+                "type": "timestamp"
+            },
+            {
+                "selector": "avg_sentiment",
+                "text": "avg_sentiment",
+                "type": "number"
+            },
+            {
+                "selector": "series",
+                "text": "series",
+                "type": "string"
+            }
+            ]
+        }
+        ],
+      "title": "Chat Sentiment Over Time",
       "type": "timeseries"
     },
     {
@@ -205,7 +299,35 @@
       "gridPos": {"h": 8, "w": 12, "x": 0, "y": 52},
       "id": 31,
       "options": {"legend": {"calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": true}, "tooltip": {"mode": "single"}},
-      "targets": [{"type": "json", "source": "url", "url": "http://mongo-api:5000/creator_trends_history?creator=$creator", "url_options": {"method": "GET", "data": ""}, "format": "timeseries", "root_selector": "", "global_query_id": "", "refId": "A"}],
+      "targets": [
+        {
+            "type": "json",
+            "source": "url",
+            "url": "http://mongo-api:5000/creator_trends_history?creator=$creator",
+            "url_options": { "method": "GET", "data": "" },
+            "format": "table",
+            "root_selector": "$",
+            "global_query_id": "",
+            "refId": "A",
+            "columns": [
+            {
+                "selector": "time",
+                "text": "time",
+                "type": "timestamp"
+            },
+            {
+                "selector": "value",
+                "text": "value",
+                "type": "number"
+            },
+            {
+                "selector": "series",
+                "text": "series",
+                "type": "string"
+            }
+            ]
+        }
+        ],
       "title": "Google Trends Interest Over Time",
       "type": "timeseries"
     },
@@ -245,7 +367,7 @@
       "gridPos": {"h": 8, "w": 12, "x": 0, "y": 68},
       "id": 35,
       "options": {"barRadius": 0, "barWidth": 0.85, "colorByField": "messages", "fullHighlight": false, "groupWidth": 0.7, "legend": {"calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": false}, "orientation": "vertical", "showValue": "auto", "stacking": "none", "tooltip": {"hideZeros": false, "mode": "single", "sort": "none"}, "xField": "user_type", "xTickLabelRotation": 0, "xTickLabelSpacing": 0},
-      "targets": [{"type": "json", "source": "url", "url": "http://mongo-api:5000/subscribers_vs_normal?channel=$creator", "url_options": {"method": "GET", "data": ""}, "format": "table", "root_selector": "", "global_query_id": "", "refId": "A"}],
+      "targets": [{"type": "json", "source": "url", "url": "http://mongo-api:5000/subscribers_vs_normal?channel=$creator", "url_options": {"method": "GET", "data": ""}, "format": "table", "root_selector": "", "global_query_id": "", "refId": "A", "columns": [{"selector": "user_type", "text": "user_type", "type": "string"}, {"selector": "messages", "text": "messages", "type": "number"}]}],
       "title": "Subscribers vs Normal Users - Message Count",
       "type": "barchart"
     },
@@ -255,7 +377,7 @@
       "gridPos": {"h": 8, "w": 12, "x": 12, "y": 68},
       "id": 36,
       "options": {"barRadius": 0, "barWidth": 0.85, "colorByField": "avg_sentiment", "fullHighlight": false, "groupWidth": 0.7, "legend": {"calcs": [], "displayMode": "list", "placement": "bottom", "showLegend": false}, "orientation": "vertical", "showValue": "auto", "stacking": "none", "tooltip": {"hideZeros": false, "mode": "single", "sort": "none"}, "xField": "user_type", "xTickLabelRotation": 0, "xTickLabelSpacing": 0},
-      "targets": [{"type": "json", "source": "url", "url": "http://mongo-api:5000/subscribers_vs_normal?channel=$creator", "url_options": {"method": "GET", "data": ""}, "format": "table", "root_selector": "", "global_query_id": "", "refId": "A"}],
+      "targets": [{"type": "json", "source": "url", "url": "http://mongo-api:5000/subscribers_vs_normal?channel=$creator", "url_options": {"method": "GET", "data": ""}, "format": "table", "root_selector": "", "global_query_id": "", "refId": "A", "columns": [{"selector": "user_type", "text": "user_type", "type": "string"}, {"selector": "avg_sentiment", "text": "avg_sentiment", "type": "number"}]}],
       "title": "Subscribers vs Normal Users - Avg Sentiment",
       "type": "barchart"
     }
