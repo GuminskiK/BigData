@@ -1,0 +1,10 @@
+apiVersion: 1
+providers:
+  - name: BigData
+    orgId: 1
+    folder: BigData
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: /var/lib/grafana/dashboards

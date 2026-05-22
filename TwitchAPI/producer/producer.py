@@ -80,7 +80,7 @@ def fetch_and_send_streams():
 
         collected_at = datetime.now(timezone.utc).isoformat()
 
-        for stream in streams:
+        def send_stream_record(stream, stream_scope, rank=None):
             data = {
                 "stream_id": stream["id"],
                 "user_id": stream["user_id"],
@@ -91,12 +91,32 @@ def fetch_and_send_streams():
                 "viewer_count": stream["viewer_count"],
                 "language": stream["language"],
                 "started_at": stream["started_at"],
-                "collected_at": collected_at
+                "collected_at": collected_at,
+                "stream_scope": stream_scope,
+                "rank": rank,
             }
             producer.send(TOPIC_NAME, value=data)
+
+        targeted_count = 0
+        for stream in streams:
+            send_stream_record(stream, "targeted")
+            targeted_count += 1
+
+        params = [("first", 100)]
+        response = requests.get("https://api.twitch.tv/helix/streams", headers=headers, params=params)
+        response.raise_for_status()
+        top_streams = response.json()["data"]
+
+        top100_count = 0
+        for index, stream in enumerate(top_streams, start=1):
+            send_stream_record(stream, "top100", rank=index)
+            top100_count += 1
         
         producer.flush()
-        print(f"[{datetime.now()}] Successfully sent {len(streams)} streams to Kafka.")
+        print(
+            f"[{datetime.now()}] Successfully sent {targeted_count} targeted streams "
+            f"and {top100_count} top100 streams to Kafka."
+        )
         
     except Exception as e:
         print(f"Error fetching/sending data: {e}")

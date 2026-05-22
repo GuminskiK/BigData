@@ -25,7 +25,7 @@ services:
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
     volumes:
-      - kafka_data:/var/lib/kafka/data
+      - kafka_data_v2:/var/lib/kafka/data
     networks:
       - bigdata-net
 
@@ -51,6 +51,25 @@ services:
       - "27017:27017"
     volumes:
       - mongodb_data:/data/db
+    networks:
+      - bigdata-net
+
+  # Mongo-backed API for Grafana Infinity dashboards
+  mongo-api:
+    build:
+      context: ./mongo-api
+      dockerfile: Dockerfile
+    container_name: mongo-api
+    restart: unless-stopped
+    environment:
+      API_HOST: 0.0.0.0
+      API_PORT: 5000
+      MONGO_BACKEND: ${MONGO_BACKEND:-local}
+      MONGO_URI_LOCAL: mongodb://mongodb:27017
+      MONGO_URI: ${MONGO_URI:-}
+      MONGO_DB_ANALYTICS: twitch_api_analytics
+      MONGO_DB_CHAT: twitch_chat
+      GOOGLE_TRENDS_DB_NAME: google_trends
     networks:
       - bigdata-net
 
@@ -137,7 +156,10 @@ services:
       HADOOP_USER_NAME: spark
       KAFKA_BROKER: kafka:9092
       KAFKA_TOPIC_TWITCH_CHAT: twitch_chat_stream
-      MONGO_URI: mongodb://mongodb:27017
+      MONGO_BACKEND: ${MONGO_BACKEND:-local}
+      MONGO_URI_LOCAL: mongodb://mongodb:27017
+      MONGO_URI: ${MONGO_URI:-}
+      SPARK_CHECKPOINT_VERSION: ${SPARK_CHECKPOINT_VERSION:-v1}
     depends_on:
       - spark-master
       - kafka
@@ -208,7 +230,9 @@ services:
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin123
       MINIO_BUCKET: twitch-api-raw
-      MONGO_URI: mongodb://mongodb:27017
+      MONGO_BACKEND: ${MONGO_BACKEND:-local}
+      MONGO_URI_LOCAL: mongodb://mongodb:27017
+      MONGO_URI: ${MONGO_URI:-}
       MONGO_DB_ANALYTICS: twitch_api_analytics
     depends_on:
       - spark-master
@@ -227,8 +251,10 @@ services:
     environment:
       PYTHONUNBUFFERED: 1
       TWITCH_CHANNELS: ${TWITCH_CHANNELS:-xqc}
-      MONGO_URI: mongodb://mongodb:27017
-      MONGO_DB_ANALYTICS: twitch_api_analytics
+      MONGO_BACKEND: ${MONGO_BACKEND:-local}
+      MONGO_URI_LOCAL: mongodb://mongodb:27017
+      MONGO_URI: ${MONGO_URI:-}
+      GOOGLE_TRENDS_DB_NAME: google_trends
       GOOGLE_TRENDS_TIMEFRAME: now 7-d
       GOOGLE_TRENDS_INTERVAL_MINUTES: 720
       GOOGLE_TRENDS_CHUNK_SIZE: 3
@@ -240,11 +266,34 @@ services:
     networks:
       - bigdata-net
 
+  # Grafana dashboard layer using the local Mongo API
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    profiles:
+      - viz
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_INSTALL_PLUGINS: yesoreyeram-infinity-datasource
+      GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS: yesoreyeram-infinity-datasource
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+    depends_on:
+      - mongo-api
+    networks:
+      - bigdata-net
+
 volumes:
   mongodb_data:
   spark_checkpoints_chat:
-  kafka_data:
+  kafka_data_v2:
   minio_data:
+  grafana_data:
 
 networks:
   bigdata-net:

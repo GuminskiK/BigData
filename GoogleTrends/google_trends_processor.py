@@ -18,12 +18,23 @@ GOOGLE_TRENDS_INTERVAL_MINUTES = int(os.getenv("GOOGLE_TRENDS_INTERVAL_MINUTES",
 GOOGLE_TRENDS_CHUNK_SIZE = int(os.getenv("GOOGLE_TRENDS_CHUNK_SIZE", "3"))
 GOOGLE_TRENDS_PAUSE_SECONDS = int(os.getenv("GOOGLE_TRENDS_PAUSE_SECONDS", "30"))
 GOOGLE_TRENDS_MAX_RETRIES = int(os.getenv("GOOGLE_TRENDS_MAX_RETRIES", "5"))
-GOOGLE_TRENDS_DB_NAME = os.getenv("GOOGLE_TRENDS_DB_NAME", os.getenv("MONGO_DB_ANALYTICS", "twitch_api_analytics"))
-MONGO_URI = os.getenv("MONGO_URI", "mongodb://mongodb:27017")
+GOOGLE_TRENDS_DB_NAME = os.getenv("GOOGLE_TRENDS_DB_NAME", os.getenv("MONGO_DB_TRENDS", "google_trends"))
+MONGO_BACKEND = os.getenv("MONGO_BACKEND", "local").lower()
+MONGO_URI_LOCAL = os.getenv("MONGO_URI_LOCAL", "mongodb://mongodb:27017")
+MONGO_URI_ATLAS = os.getenv("MONGO_URI", "")
+
+
+def resolve_mongo_uri():
+    if MONGO_BACKEND == "atlas":
+        if not MONGO_URI_ATLAS:
+            raise RuntimeError("MONGO_URI is missing for Mongo Atlas mode.")
+        return MONGO_URI_ATLAS
+
+    return MONGO_URI_LOCAL
 
 
 def get_mongo_db():
-    client = MongoClient(MONGO_URI)
+    client = MongoClient(resolve_mongo_uri())
     return client[GOOGLE_TRENDS_DB_NAME]
 
 

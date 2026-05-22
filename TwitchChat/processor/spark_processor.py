@@ -7,15 +7,27 @@ from pyspark.sql.types import StructType, StringType, DoubleType
 from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
 
 KAFKA_SERVERS = os.getenv("KAFKA_BROKER", "kafka:9092")
-MONGODB_URI = os.getenv("MONGODB_URI", "mongodb://mongodb:27017")
+MONGO_BACKEND = os.getenv("MONGO_BACKEND", "local").lower()
+MONGO_URI_LOCAL = os.getenv("MONGO_URI_LOCAL", "mongodb://mongodb:27017")
+MONGO_URI_ATLAS = os.getenv("MONGO_URI", "")
 MONGODB_DB = os.getenv("MONGODB_DB_CHAT", "twitch_chat")
 KAFKA_TOPIC = os.getenv("KAFKA_TOPIC_TWITCH_CHAT", "twitch_chat_stream")
 WINDOW_MINUTES = int(os.getenv("SENTIMENT_WINDOW_MINUTES", "1"))
+CHECKPOINT_VERSION = os.getenv("SPARK_CHECKPOINT_VERSION", "v1")
+
+
+def resolve_mongo_uri():
+    if MONGO_BACKEND == "atlas":
+        if not MONGO_URI_ATLAS:
+            raise RuntimeError("MONGO_URI is missing for Mongo Atlas mode.")
+        return MONGO_URI_ATLAS
+
+    return MONGO_URI_LOCAL
 
 def main():
     spark = SparkSession.builder \
         .appName("TwitchChatProcessor") \
-        .config("spark.mongodb.write.connection.uri", MONGODB_URI) \
+        .config("spark.mongodb.write.connection.uri", resolve_mongo_uri()) \
         .getOrCreate()
 
     schema = StructType() \
@@ -66,7 +78,7 @@ def main():
 
     raw_query = processed_df.writeStream \
         .foreachBatch(write_raw_to_mongo) \
-        .option("checkpointLocation", "/app/spark_checkpoints/raw") \
+        .option("checkpointLocation", f"/app/spark_checkpoints/{CHECKPOINT_VERSION}/raw") \
         .start()
 
     # 4. Agregacja okienkowa (średni sentyment na kanał)
@@ -88,7 +100,7 @@ def main():
 
     stats_query = windowed_df.writeStream \
         .foreachBatch(write_stats_to_mongo) \
-        .option("checkpointLocation", "/app/spark_checkpoints/stats") \
+        .option("checkpointLocation", f"/app/spark_checkpoints/{CHECKPOINT_VERSION}/stats") \
         .start()
 
     spark.streams.awaitAnyTermination()

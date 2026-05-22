@@ -1,7 +1,7 @@
 import os
 import time
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import col, sum, avg, max, count
+from pyspark.sql.functions import col, sum, avg, max, count, lit
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -10,10 +10,21 @@ MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT_DOCKER")
 MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS_KEY")
 MINIO_SECRET_KEY = os.getenv("MINIO_SECRET_KEY")
 MINIO_BUCKET = os.getenv("MINIO_BUCKET")
-MONGO_URI = os.getenv("MONGO_URI")
+MONGO_BACKEND = os.getenv("MONGO_BACKEND", "local").lower()
+MONGO_URI_LOCAL = os.getenv("MONGO_URI_LOCAL", "mongodb://mongodb:27017")
+MONGO_URI_ATLAS = os.getenv("MONGO_URI", "")
 MONGO_DB_NAME = os.getenv("MONGO_DB_ANALYTICS", os.getenv("MONGO_DB_NAME", "twitch_api_analytics"))
 MINIO_WAIT_SECONDS = int(os.getenv("MINIO_WAIT_SECONDS", "10"))
 BATCH_PROCESS_INTERVAL_MINUTES = int(os.getenv("BATCH_PROCESS_INTERVAL_MINUTES", "5"))
+
+
+def resolve_mongo_uri():
+    if MONGO_BACKEND == "atlas":
+        if not MONGO_URI_ATLAS:
+            raise RuntimeError("MONGO_URI is missing for Mongo Atlas mode.")
+        return MONGO_URI_ATLAS
+
+    return MONGO_URI_LOCAL
 
 def create_spark_session():
     packages = [
@@ -54,31 +65,45 @@ def process_data():
 
     try:
         df = read_minio_input(spark)
+        if "stream_scope" not in df.columns:
+            df = df.withColumn("stream_scope", lit("targeted"))
+        else:
+            df = df.fillna({"stream_scope": "targeted"})
 
         df.cache()
         print(f"Total rows read: {df.count()}")
 
-        top_games = df.groupBy("game_name") \
-            .agg(sum("viewer_count").alias("total_viewers"), count("stream_id").alias("streams_count")) \
-            .orderBy(col("total_viewers").desc())
-
-        top_streamers = df.groupBy("user_name", "game_name") \
-            .agg(max("viewer_count").alias("peak_viewers")) \
-            .orderBy(col("peak_viewers").desc())
-
-        print("Writing to MongoDB...")
-        
         def write_to_mongo(dataframe, collection):
             dataframe.write \
                 .format("mongodb") \
                 .mode("overwrite") \
-                .option("spark.mongodb.write.connection.uri", MONGO_URI) \
+                .option("spark.mongodb.write.connection.uri", resolve_mongo_uri()) \
                 .option("spark.mongodb.write.database", MONGO_DB_NAME) \
                 .option("spark.mongodb.write.collection", collection) \
                 .save()
 
-        write_to_mongo(top_games, "top_games")
-        write_to_mongo(top_streamers, "streamer_stats")
+        def process_scope(scope_name, scope_df, collection_suffix=""):
+            if scope_df.rdd.isEmpty():
+                print(f"No rows found for scope '{scope_name}'. Skipping writes.")
+                return
+
+            top_games = scope_df.groupBy("game_name") \
+                .agg(sum("viewer_count").alias("total_viewers"), count("stream_id").alias("streams_count")) \
+                .orderBy(col("total_viewers").desc())
+
+            top_streamers = scope_df.groupBy("user_name", "game_name") \
+                .agg(max("viewer_count").alias("peak_viewers")) \
+                .orderBy(col("peak_viewers").desc())
+
+            print(f"Writing {scope_name} analytics to MongoDB...")
+            write_to_mongo(top_games, f"top_games{collection_suffix}")
+            write_to_mongo(top_streamers, f"streamer_stats{collection_suffix}")
+
+        targeted_df = df.filter(col("stream_scope") == "targeted")
+        top100_df = df.filter(col("stream_scope") == "top100")
+
+        process_scope("targeted", targeted_df)
+        process_scope("top100", top100_df, "_top100")
 
         print("Batch processing finished successfully.")
     finally:
