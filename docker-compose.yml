@@ -3,11 +3,15 @@ services:
   zookeeper:
     image: confluentinc/cp-zookeeper:7.4.0
     container_name: zookeeper
+    restart: unless-stopped
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
       ZOOKEEPER_TICK_TIME: 2000
     ports:
       - "2181:2181"
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+      - zookeeper_log:/var/lib/zookeeper/log
     networks:
       - bigdata-net
 
@@ -15,6 +19,7 @@ services:
   kafka:
     image: confluentinc/cp-kafka:7.4.0
     container_name: kafka
+    restart: unless-stopped
     depends_on:
       - zookeeper
     ports:
@@ -66,7 +71,7 @@ services:
     environment:
       API_HOST: 0.0.0.0
       API_PORT: 5000
-      MONGO_BACKEND: ${MONGO_BACKEND:-local}
+      MONGO_BACKEND: local
       MONGO_URI_LOCAL: mongodb://mongodb:27017
       MONGO_URI: ${MONGO_URI:-}
       MONGO_DB_ANALYTICS: twitch_api_analytics
@@ -95,6 +100,7 @@ services:
   spark-master:
     image: apache/spark:3.5.0
     container_name: spark-master
+    restart: unless-stopped
     user: root
     command: /opt/spark/bin/spark-class org.apache.spark.deploy.master.Master
     ports:
@@ -108,6 +114,23 @@ services:
       context: ./TwitchChat/processor
       dockerfile: Dockerfile
     container_name: spark-worker
+    restart: unless-stopped
+    user: root
+    command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
+    environment:
+      SPARK_WORKER_CORES: 2
+      SPARK_WORKER_MEMORY: 2g
+    depends_on:
+      - spark-master
+    networks:
+      - bigdata-net
+
+  spark-worker-2:
+    build:
+      context: ./TwitchChat/processor
+      dockerfile: Dockerfile
+    container_name: spark-worker-2
+    restart: unless-stopped
     user: root
     command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
     environment:
@@ -150,7 +173,7 @@ services:
       --conf "spark.driver.extraJavaOptions=-Divy.cache.dir=/app/.ivy2 -Duser.home=/app -Duser.name=spark"
       --conf "spark.executor.extraJavaOptions=-Duser.name=spark"
       --conf "spark.hadoop.user.name=spark"
-      --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,org.mongodb.spark:mongo-spark-connector_2.12:10.4.0
+      --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262,org.mongodb.spark:mongo-spark-connector_2.12:10.4.0
       /app/spark_processor.py
     environment:
       PYSPARK_PYTHON: python3
@@ -158,7 +181,11 @@ services:
       HADOOP_USER_NAME: spark
       KAFKA_BROKER: kafka:9092
       KAFKA_TOPIC_TWITCH_CHAT: twitch_chat_stream
-      MONGO_BACKEND: ${MONGO_BACKEND:-local}
+      MINIO_ENDPOINT_DOCKER: http://minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin123
+      MINIO_BUCKET: twitch-chat-raw
+      MONGO_BACKEND: local
       MONGO_URI_LOCAL: mongodb://mongodb:27017
       MONGO_URI: ${MONGO_URI:-}
       SPARK_CHECKPOINT_VERSION: ${SPARK_CHECKPOINT_VERSION:-v1}
@@ -166,6 +193,7 @@ services:
       - spark-master
       - kafka
       - mongodb
+      - minio
     volumes:
       - spark_checkpoints_chat:/app/spark_checkpoints
     networks:
@@ -190,28 +218,7 @@ services:
     networks:
       - bigdata-net
 
-  # TwitchAPI Kafka -> MinIO consumer
-  twitchapi_minio_consumer:
-    build:
-      context: ./TwitchAPI/minio
-      dockerfile: Dockerfile
-    container_name: twitchapi_minio_consumer
-    restart: on-failure
-    environment:
-      PYTHONUNBUFFERED: 1
-      KAFKA_BROKER: kafka:9092
-      KAFKA_TOPIC_TWITCH_API: twitch_api_stream
-      MINIO_ENDPOINT_LOCAL: http://minio:9000
-      MINIO_ACCESS_KEY: minioadmin
-      MINIO_SECRET_KEY: minioadmin123
-      MINIO_BUCKET: twitch-api-raw
-    depends_on:
-      - kafka
-      - minio
-    networks:
-      - bigdata-net
-
-  # TwitchAPI Spark batch job (MinIO -> MongoDB)
+  # TwitchAPI Spark batch job (Kafka -> MinIO + MongoDB)
   twitchapi_batch_processor:
     build:
       context: ./TwitchAPI/processor
@@ -224,15 +231,17 @@ services:
       --conf "spark.driver.extraJavaOptions=-Divy.cache.dir=/app/.ivy2 -Duser.home=/app -Duser.name=spark"
       --conf "spark.executor.extraJavaOptions=-Duser.name=spark"
       --conf "spark.hadoop.user.name=spark"
-      --packages org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262,org.mongodb.spark:mongo-spark-connector_2.12:10.4.0
+      --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262,org.mongodb.spark:mongo-spark-connector_2.12:10.4.0
       /app/spark_batch_job.py
     environment:
       PYTHONUNBUFFERED: 1
+      KAFKA_BROKER: kafka:9092
+      KAFKA_TOPIC_TWITCH_API: twitch_api_stream
       MINIO_ENDPOINT_DOCKER: http://minio:9000
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin123
       MINIO_BUCKET: twitch-api-raw
-      MONGO_BACKEND: ${MONGO_BACKEND:-local}
+      MONGO_BACKEND: local
       MONGO_URI_LOCAL: mongodb://mongodb:27017
       MONGO_URI: ${MONGO_URI:-}
       MONGO_DB_ANALYTICS: twitch_api_analytics
@@ -243,20 +252,18 @@ services:
     networks:
       - bigdata-net
 
-  # Google Trends batch processor (search interest -> MongoDB)
-  googletrends_processor:
+  # Google Trends producer (search interest -> Kafka)
+  googletrends_producer:
     build:
       context: ./GoogleTrends
       dockerfile: Dockerfile
-    container_name: googletrends_processor
+    container_name: googletrends_producer
     restart: on-failure
     environment:
       PYTHONUNBUFFERED: 1
+      KAFKA_BROKER: kafka:9092
+      KAFKA_TOPIC_GOOGLE_TRENDS: google_trends_stream
       TWITCH_CHANNELS: ${TWITCH_CHANNELS:-xqc}
-      MONGO_BACKEND: ${MONGO_BACKEND:-local}
-      MONGO_URI_LOCAL: mongodb://mongodb:27017
-      MONGO_URI: ${MONGO_URI:-}
-      GOOGLE_TRENDS_DB_NAME: google_trends
       GOOGLE_TRENDS_TIMEFRAME: now 7-d
       GOOGLE_TRENDS_INTERVAL_MINUTES: 720
       GOOGLE_TRENDS_CHUNK_SIZE: 3
@@ -264,7 +271,45 @@ services:
       GOOGLE_TRENDS_MAX_RETRIES: 5
       GOOGLE_TRENDS_GEO: ""
     depends_on:
+      - kafka
+    networks:
+      - bigdata-net
+
+  # Google Trends Spark batch job (Kafka -> MinIO + MongoDB)
+  googletrends_batch_processor:
+    build:
+      context: ./GoogleTrends/processor
+      dockerfile: Dockerfile
+    container_name: googletrends_batch_processor
+    restart: on-failure
+    command: >
+      /opt/spark/bin/spark-submit
+      --master spark://spark-master:7077
+      --conf "spark.cores.max=1"
+      --conf "spark.driver.extraJavaOptions=-Divy.cache.dir=/app/.ivy2 -Duser.home=/app -Duser.name=spark"
+      --conf "spark.executor.extraJavaOptions=-Duser.name=spark"
+      --conf "spark.hadoop.user.name=spark"
+      --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0,org.apache.hadoop:hadoop-aws:3.3.4,com.amazonaws:aws-java-sdk-bundle:1.12.262,org.mongodb.spark:mongo-spark-connector_2.12:10.4.0
+      /app/spark_batch_job.py
+    environment:
+      PYTHONUNBUFFERED: 1
+      KAFKA_BROKER: kafka:9092
+      KAFKA_TOPIC_GOOGLE_TRENDS: google_trends_stream
+      MINIO_ENDPOINT_DOCKER: http://minio:9000
+      MINIO_ACCESS_KEY: minioadmin
+      MINIO_SECRET_KEY: minioadmin123
+      MINIO_BUCKET: google-trends-raw
+      MONGO_BACKEND: local
+      MONGO_URI_LOCAL: mongodb://mongodb:27017
+      MONGO_URI: ${MONGO_URI:-}
+      GOOGLE_TRENDS_DB_NAME: google_trends
+      GOOGLE_TRENDS_TIMEFRAME: now 7-d
+      GOOGLE_TRENDS_GEO: ""
+    depends_on:
+      - spark-master
+      - kafka
       - mongodb
+      - minio
     networks:
       - bigdata-net
 
@@ -296,6 +341,8 @@ volumes:
   kafka_data_v2:
   minio_data:
   grafana_data:
+  zookeeper_data:
+  zookeeper_log:
 
 networks:
   bigdata-net:

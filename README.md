@@ -6,10 +6,10 @@ Local data platform for Twitch streams, Twitch chat, and Google Trends.
 
 - Kafka for event transport.
 - MongoDB for analytics storage.
-- MinIO for Twitch API raw parquet snapshots.
-- TwitchChat pipeline: IRC producer -> Spark streaming -> MongoDB.
-- TwitchAPI pipeline: Twitch API producer -> Kafka -> MinIO -> Spark batch -> MongoDB.
-- Google Trends batch: Google Trends -> MongoDB.
+- MinIO for RAW parquet snapshots from Twitch API, Twitch Chat, and Google Trends.
+- TwitchChat pipeline: IRC producer -> Kafka -> Spark streaming -> MinIO raw + MongoDB.
+- TwitchAPI pipeline: Twitch API producer -> Kafka -> Spark streaming -> MinIO raw + MongoDB.
+- Google Trends pipeline: Google Trends -> Kafka -> Spark batch -> MinIO raw + MongoDB.
 - Mongo API: lightweight Flask API used by Grafana Infinity.
 - Grafana: optional dashboard layer.
 
@@ -116,12 +116,11 @@ The creator panels are append-only too, and the dashboard selects the latest sna
 
 ## Data layout
 
-- TwitchChat writes append-only raw chat events into `twitch_chat.raw_messages`.
-- TwitchChat writes append-only windowed chat metrics into `twitch_chat.channel_stats`.
-- TwitchAPI writes append-only targeted snapshots into `twitch_api_analytics.top_games` and `twitch_api_analytics.streamer_stats`.
+- TwitchChat writes RAW chat parquet into MinIO and append-only chat aggregates into `twitch_chat.chat_stats_1m`, `twitch_chat.channel_stats`, `twitch_chat.chat_stats_1h`, and `twitch_chat.chat_user_totals`.
+- TwitchChat no longer stores raw chat messages in MongoDB.
+- TwitchAPI writes RAW stream parquet into MinIO and append-only targeted snapshots into `twitch_api_analytics.top_games` and `twitch_api_analytics.streamer_stats`.
 - TwitchAPI writes append-only top 100 snapshots into `twitch_api_analytics.top_games_top100` and `twitch_api_analytics.streamer_stats_top100`.
-- Google Trends writes append-only keyword time series into `google_trends.google_trends_interest_over_time`.
-- Google Trends writes append-only batch summaries into `google_trends.google_trends_summary`.
+- Google Trends writes RAW parquet into MinIO and append-only keyword time series plus summaries into `google_trends.google_trends_interest_over_time` and `google_trends.google_trends_summary`.
 
 In all of those collections, the latest state is determined by `snapshot_at`, `timestamp`, or `collected_at`, depending on the dataset.
 

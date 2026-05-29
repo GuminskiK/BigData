@@ -21,10 +21,15 @@ ANALYTICS_DB = os.getenv("MONGO_DB_ANALYTICS", "twitch_api_analytics")
 CHAT_DB = os.getenv("MONGO_DB_CHAT", "twitch_chat")
 TRENDS_DB = os.getenv("GOOGLE_TRENDS_DB_NAME", "google_trends")
 
+
+def is_valid_mongo_uri(uri: str) -> bool:
+    if not uri:
+        return False
+    lowered = uri.lower()
+    return not any(token in lowered for token in ("<username>", "<password>", "xxxxx", "placeholder"))
+
 def resolve_mongo_uri() -> str:
-    if MONGO_BACKEND == "atlas":
-        if not MONGO_URI_ATLAS:
-            raise RuntimeError("MONGO_URI is missing for Mongo Atlas mode.")
+    if MONGO_BACKEND == "atlas" and is_valid_mongo_uri(MONGO_URI_ATLAS):
         return MONGO_URI_ATLAS
 
     return MONGO_URI_LOCAL
@@ -62,8 +67,28 @@ def collect(cursor: Iterable[dict]) -> list[dict]:
     return list(cursor)
 
 
+def dedupe_by_key(docs: list[dict], key_fn):
+    seen = set()
+    result = []
+    for doc in docs:
+        key = key_fn(doc)
+        if key in seen:
+            continue
+        seen.add(key)
+        result.append(doc)
+    return result
+
+
 def scope_for_collection(collection_name: str) -> str:
     return "top100" if collection_name.endswith("_top100") else "targeted"
+
+
+def window_collection_name(window_minutes: int) -> str:
+    return {
+        1: "chat_stats_1m",
+        5: "channel_stats",
+        60: "chat_stats_1h",
+    }.get(window_minutes, "channel_stats")
 
 
 def latest_snapshot_time(collection_name: str, scope: str) -> datetime | None:
@@ -128,35 +153,30 @@ def history_timeseries_response(
 
 
 def messages_per_window_response(window_minutes: int = 60, negative_only: bool = False):
-    match_stage = {"$match": {"sentiment_score": {"$lt": -0.3}}} if negative_only else {}
-    pipeline = [
-        *([match_stage] if match_stage else []),
+    collection_name = window_collection_name(window_minutes)
+    field_name = "negative_message_count" if negative_only else "message_count"
+    docs = collect(db_chat[collection_name].find(
+        {},
         {
-            "$group": {
-                "_id": {
-                    "window": {
-                        "$dateToString": {
-                            "format": "%Y-%m-%dT%H:00:00",
-                            "date": "$timestamp"
-                        }
-                    },
-                    "channel": "$channel"
-                },
-                "messages": {"$sum": 1}
-            }
+            "_id": 0,
+            "window": 1,
+            "channel": 1,
+            "message_count": 1,
+            "negative_message_count": 1,
+            "snapshot_at": 1,
         },
-        {"$sort": {"_id.window": 1}}
-    ]
+    ).sort([("window.start", ASCENDING), ("channel", ASCENDING), ("snapshot_at", DESCENDING)]))
+    docs = dedupe_by_key(docs, lambda d: (d.get("window", {}).get("start"), d.get("channel", "unknown")))
 
-    field_name = "negative_messages" if negative_only else "messages"
     result = []
-    for d in db_chat.raw_messages.aggregate(pipeline):
+    for d in docs:
+        window_doc = d.get("window", {})
         result.append({
-            "time": d["_id"]["window"],
-            "series": d["_id"].get("channel", "unknown"),
-            "value": as_int(d.get("messages", 0)),
-            "channel": d["_id"].get("channel", "unknown"),
-            field_name: as_int(d.get("messages", 0)),
+            "time": as_iso(window_doc.get("start")),
+            "series": d.get("channel", "unknown"),
+            "value": as_int(d.get(field_name, 0)),
+            "channel": d.get("channel", "unknown"),
+            field_name: as_int(d.get(field_name, 0)),
         })
 
     return jsonify(result)
@@ -417,9 +437,10 @@ def creator_chat_history_response(creator: str):
     docs = collect(
         db_chat.channel_stats.find(
             {"channel": creator_regex(creator)},
-            {"_id": 0, "window.start": 1, "channel": 1, "avg_sentiment": 1, "message_count": 1, "unique_chatters": 1}
-        ).sort([("window.start", ASCENDING)])
+            {"_id": 0, "window.start": 1, "channel": 1, "avg_sentiment": 1, "message_count": 1, "unique_chatters": 1, "snapshot_at": 1}
+        ).sort([("window.start", ASCENDING), ("snapshot_at", DESCENDING)])
     )
+    docs = dedupe_by_key(docs, lambda d: (d.get("window", {}).get("start"), d.get("channel", creator)))
 
     return jsonify([
         {
@@ -439,19 +460,23 @@ def creator_top_chatters_response(creator: str, limit: int = 20):
         {
             "$group": {
                 "_id": "$username",
-                "messages": {"$sum": 1},
-                "avg_sentiment": {"$avg": "$sentiment_score"},
+                "messages": {"$sum": "$messages"},
+                "sentiment_sum": {"$sum": "$sentiment_sum"},
+                "sentiment_count": {"$sum": "$sentiment_count"},
             }
         },
         {"$sort": {"messages": -1}},
         {"$limit": limit},
     ]
-    docs = collect(db_chat.raw_messages.aggregate(pipeline))
+    docs = collect(db_chat.chat_user_totals.aggregate(pipeline))
     return jsonify([
         {
             "username": d.get("_id", "unknown"),
             "messages": as_int(d.get("messages", 0)),
-            "avg_sentiment": round(as_float(d.get("avg_sentiment", 0)), 4),
+            "avg_sentiment": round(
+                as_float(d.get("sentiment_sum", 0)) / max(as_int(d.get("sentiment_count", 0)), 1),
+                4,
+            ),
         }
         for d in docs
     ])
@@ -483,7 +508,7 @@ def home():
         "service": "BigData Mongo API",
         "databases": {
             ANALYTICS_DB: ["top_games", "streamer_stats", "creator_stats", "top_games_top100", "streamer_stats_top100"],
-            CHAT_DB: ["channel_stats", "raw_messages"],
+            CHAT_DB: ["channel_stats", "chat_stats_1m", "chat_stats_1h", "chat_user_totals"],
             TRENDS_DB: ["google_trends_summary", "google_trends_interest_over_time"],
         },
         "endpoints": [
@@ -615,9 +640,10 @@ def sentiment_over_time():
     docs = collect(
         db_chat.channel_stats.find(
             {},
-            {"_id": 0, "window.start": 1, "channel": 1, "avg_sentiment": 1}
-        ).sort("window.start", ASCENDING)
+            {"_id": 0, "window.start": 1, "channel": 1, "avg_sentiment": 1, "snapshot_at": 1}
+        ).sort([("window.start", ASCENDING), ("channel", ASCENDING), ("snapshot_at", DESCENDING)])
     )
+    docs = dedupe_by_key(docs, lambda d: (d.get("window", {}).get("start"), d.get("channel", "unknown")))
 
     result = []
     for d in docs:
@@ -640,32 +666,21 @@ def messages_per_minute():
 
 @app.route("/messages_per_hour")
 def messages_per_hour():
-    pipeline = [
-        {
-            "$group": {
-                "_id": {
-                    "hour": {
-                        "$dateToString": {
-                            "format": "%Y-%m-%dT%H:00:00",
-                            "date": "$timestamp"
-                        }
-                    },
-                    "channel": "$channel"
-                },
-                "messages": {"$sum": 1}
-            }
-        },
-        {"$sort": {"_id.hour": 1}}
-    ]
+    docs = collect(db_chat.chat_stats_1h.find(
+        {},
+        {"_id": 0, "window": 1, "channel": 1, "message_count": 1, "snapshot_at": 1},
+    ).sort([("window.start", ASCENDING), ("channel", ASCENDING), ("snapshot_at", DESCENDING)]))
+    docs = dedupe_by_key(docs, lambda d: (d.get("window", {}).get("start"), d.get("channel", "unknown")))
 
     result = []
-    for d in db_chat.raw_messages.aggregate(pipeline):
+    for d in docs:
+        window_doc = d.get("window", {})
         result.append({
-            "time": d["_id"]["hour"],
-            "series": d["_id"].get("channel", "unknown"),
-            "value": as_int(d.get("messages", 0)),
-            "channel": d["_id"].get("channel", "unknown"),
-            "messages": as_int(d.get("messages", 0)),
+            "time": as_iso(window_doc.get("start")),
+            "series": d.get("channel", "unknown"),
+            "value": as_int(d.get("message_count", 0)),
+            "channel": d.get("channel", "unknown"),
+            "messages": as_int(d.get("message_count", 0)),
         })
 
     return jsonify(result)
@@ -677,8 +692,9 @@ def top_chatters():
         {
             "$group": {
                 "_id": "$username",
-                "messages": {"$sum": 1},
-                "avg_sentiment": {"$avg": "$sentiment_score"}
+                "messages": {"$sum": "$messages"},
+                "sentiment_sum": {"$sum": "$sentiment_sum"},
+                "sentiment_count": {"$sum": "$sentiment_count"},
             }
         },
         {"$sort": {"messages": -1}},
@@ -686,11 +702,12 @@ def top_chatters():
     ]
 
     result = []
-    for d in db_chat.raw_messages.aggregate(pipeline):
+    for d in db_chat.chat_user_totals.aggregate(pipeline):
+        sentiment_count = as_int(d.get("sentiment_count", 0))
         result.append({
             "username": d.get("_id", "unknown"),
             "messages": as_int(d.get("messages", 0)),
-            "avg_sentiment": as_float(d.get("avg_sentiment", 0)),
+            "avg_sentiment": round(as_float(d.get("sentiment_sum", 0)) / max(sentiment_count, 1), 4),
         })
 
     return jsonify(result)
@@ -703,7 +720,7 @@ def unique_chat_users():
         {"$count": "unique_users"},
     ]
 
-    result = list(db_chat.raw_messages.aggregate(pipeline))
+    result = list(db_chat.chat_user_totals.aggregate(pipeline))
     if not result:
         return jsonify([{"unique_users": 0}])
 
@@ -717,33 +734,21 @@ def negative_messages():
 
 @app.route("/negative_messages_per_hour")
 def negative_messages_per_hour():
-    pipeline = [
-        {"$match": {"sentiment_score": {"$lt": -0.3}}},
-        {
-            "$group": {
-                "_id": {
-                    "hour": {
-                        "$dateToString": {
-                            "format": "%Y-%m-%dT%H:00:00",
-                            "date": "$timestamp"
-                        }
-                    },
-                    "channel": "$channel"
-                },
-                "negative_messages": {"$sum": 1}
-            }
-        },
-        {"$sort": {"_id.hour": 1}}
-    ]
+    docs = collect(db_chat.chat_stats_1h.find(
+        {},
+        {"_id": 0, "window": 1, "channel": 1, "negative_message_count": 1, "snapshot_at": 1},
+    ).sort([("window.start", ASCENDING), ("channel", ASCENDING), ("snapshot_at", DESCENDING)]))
+    docs = dedupe_by_key(docs, lambda d: (d.get("window", {}).get("start"), d.get("channel", "unknown")))
 
     result = []
-    for d in db_chat.raw_messages.aggregate(pipeline):
+    for d in docs:
+        window_doc = d.get("window", {})
         result.append({
-            "time": d["_id"]["hour"],
-            "series": d["_id"].get("channel", "unknown"),
-            "value": as_int(d.get("negative_messages", 0)),
-            "channel": d["_id"].get("channel", "unknown"),
-            "negative_messages": as_int(d.get("negative_messages", 0)),
+            "time": as_iso(window_doc.get("start")),
+            "series": d.get("channel", "unknown"),
+            "value": as_int(d.get("negative_message_count", 0)),
+            "channel": d.get("channel", "unknown"),
+            "negative_messages": as_int(d.get("negative_message_count", 0)),
         })
 
     return jsonify(result)
@@ -757,11 +762,12 @@ def channel_summary():
         {
             "$group": {
                 "_id": "$channel",
-                "messages": {"$sum": 1},
-                "unique_users": {"$addToSet": "$username"},
-                "avg_sentiment": {"$avg": "$sentiment_score"},
-                "min_sentiment": {"$min": "$sentiment_score"},
-                "max_sentiment": {"$max": "$sentiment_score"},
+                "messages": {"$sum": "$messages"},
+                "unique_users": {"$sum": 1},
+                "sentiment_sum": {"$sum": "$sentiment_sum"},
+                "sentiment_count": {"$sum": "$sentiment_count"},
+                "min_sentiment": {"$min": "$min_sentiment"},
+                "max_sentiment": {"$max": "$max_sentiment"},
             }
         },
         {
@@ -769,8 +775,14 @@ def channel_summary():
                 "_id": 0,
                 "channel": "$_id",
                 "messages": 1,
-                "unique_users": {"$size": "$unique_users"},
-                "avg_sentiment": 1,
+                "unique_users": 1,
+                "avg_sentiment": {
+                    "$cond": [
+                        {"$gt": ["$sentiment_count", 0]},
+                        {"$divide": ["$sentiment_sum", "$sentiment_count"]},
+                        0,
+                    ]
+                },
                 "min_sentiment": 1,
                 "max_sentiment": 1,
             }
@@ -779,7 +791,7 @@ def channel_summary():
     ]
 
     result = []
-    for d in db_chat.raw_messages.aggregate(pipeline):
+    for d in db_chat.chat_user_totals.aggregate(pipeline):
         result.append({
             "channel": d.get("channel", "unknown"),
             "messages": as_int(d.get("messages", 0)),
@@ -798,35 +810,38 @@ def subscribers_vs_normal():
     pipeline = [
         *([{"$match": {"channel": creator_regex(channel)}}] if channel else []),
         {
-            "$project": {
-                "sentiment_score": 1,
-                "user_type": {
-                    "$cond": [
-                        {"$ne": ["$badges.subscriber", None]},
-                        "subscriber",
-                        "normal_user"
-                    ]
-                }
-            }
-        },
-        {
             "$group": {
-                "_id": "$user_type",
-                "messages": {"$sum": 1},
-                "avg_sentiment": {"$avg": "$sentiment_score"}
+                "_id": None,
+                "subscriber_messages": {"$sum": "$subscriber_messages"},
+                "normal_messages": {"$sum": "$normal_messages"},
+                "subscriber_sentiment_sum": {"$sum": "$subscriber_sentiment_sum"},
+                "subscriber_sentiment_count": {"$sum": "$subscriber_sentiment_count"},
+                "normal_sentiment_sum": {"$sum": "$normal_sentiment_sum"},
+                "normal_sentiment_count": {"$sum": "$normal_sentiment_count"},
             }
         }
     ]
 
-    result = []
-    for d in db_chat.raw_messages.aggregate(pipeline):
-        result.append({
-            "user_type": d.get("_id", "unknown"),
-            "messages": as_int(d.get("messages", 0)),
-            "avg_sentiment": as_float(d.get("avg_sentiment", 0)),
-        })
+    docs = collect(db_chat.chat_user_totals.aggregate(pipeline))
+    if not docs:
+        return jsonify([])
 
-    return jsonify(result)
+    d = docs[0]
+    subscriber_count = as_int(d.get("subscriber_sentiment_count", 0))
+    normal_count = as_int(d.get("normal_sentiment_count", 0))
+
+    return jsonify([
+        {
+            "user_type": "subscriber",
+            "messages": as_int(d.get("subscriber_messages", 0)),
+            "avg_sentiment": round(as_float(d.get("subscriber_sentiment_sum", 0)) / max(subscriber_count, 1), 4),
+        },
+        {
+            "user_type": "normal_user",
+            "messages": as_int(d.get("normal_messages", 0)),
+            "avg_sentiment": round(as_float(d.get("normal_sentiment_sum", 0)) / max(normal_count, 1), 4),
+        },
+    ])
 
 
 @app.route("/google_trends_summary")
