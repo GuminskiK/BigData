@@ -62,6 +62,8 @@ services:
     image: mongo:8.0
     container_name: mongodb
     logging: *default-logging
+    profiles:
+      - local-mongo
     ports:
       - "27017:27017"
     volumes:
@@ -82,7 +84,7 @@ services:
     environment:
       API_HOST: 0.0.0.0
       API_PORT: 5000
-      MONGO_BACKEND: local
+      MONGO_BACKEND: ${MONGO_BACKEND:-atlas}
       MONGO_URI_LOCAL: mongodb://mongodb:27017
       MONGO_URI: ${MONGO_URI:-}
       MONGO_DB_ANALYTICS: twitch_api_analytics
@@ -208,14 +210,13 @@ services:
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin123
       MINIO_BUCKET: twitch-chat-raw
-      MONGO_BACKEND: local
+      MONGO_BACKEND: ${MONGO_BACKEND:-atlas}
       MONGO_URI_LOCAL: mongodb://mongodb:27017
       MONGO_URI: ${MONGO_URI:-}
       SPARK_CHECKPOINT_VERSION: ${SPARK_CHECKPOINT_VERSION:-v1}
     depends_on:
       - spark-master
       - kafka
-      - mongodb
       - minio
     volumes:
       - spark_checkpoints_chat:/app/spark_checkpoints
@@ -266,13 +267,12 @@ services:
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin123
       MINIO_BUCKET: twitch-api-raw
-      MONGO_BACKEND: local
+      MONGO_BACKEND: ${MONGO_BACKEND:-atlas}
       MONGO_URI_LOCAL: mongodb://mongodb:27017
       MONGO_URI: ${MONGO_URI:-}
       MONGO_DB_ANALYTICS: twitch_api_analytics
     depends_on:
       - spark-master
-      - mongodb
       - minio
     networks:
       - bigdata-net
@@ -326,7 +326,7 @@ services:
       MINIO_ACCESS_KEY: minioadmin
       MINIO_SECRET_KEY: minioadmin123
       MINIO_BUCKET: google-trends-raw
-      MONGO_BACKEND: local
+      MONGO_BACKEND: ${MONGO_BACKEND:-atlas}
       MONGO_URI_LOCAL: mongodb://mongodb:27017
       MONGO_URI: ${MONGO_URI:-}
       GOOGLE_TRENDS_DB_NAME: google_trends
@@ -335,7 +335,6 @@ services:
     depends_on:
       - spark-master
       - kafka
-      - mongodb
       - minio
     networks:
       - bigdata-net
