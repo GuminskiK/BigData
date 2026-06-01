@@ -1,8 +1,15 @@
+x-logging: &default-logging
+  driver: "json-file"
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   # Zookeeper (used by older Confluent Kafka images)
   zookeeper:
     image: confluentinc/cp-zookeeper:7.4.0
     container_name: zookeeper
+    logging: *default-logging
     restart: unless-stopped
     environment:
       ZOOKEEPER_CLIENT_PORT: 2181
@@ -16,6 +23,7 @@ services:
   # Kafka broker (can be replaced with external broker by setting KAFKA_EXTERNAL=true and pointing producers/processors to it)
   kafka:
     image: confluentinc/cp-kafka:7.4.0
+    logging: *default-logging
     container_name: kafka
     restart: unless-stopped
     depends_on:
@@ -27,8 +35,8 @@ services:
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_LOG_RETENTION_HOURS: 2
-      KAFKA_LOG_RETENTION_BYTES: 2147483648 # 2GB
+      KAFKA_LOG_RETENTION_HOURS: 1
+      KAFKA_LOG_RETENTION_BYTES: 1073741824 # 1GB
     # Usunięto wolumen tak aby state był ulotny pomiędzy usunięciem i stworzeniem kontenera.
     # Zapobiega to errorom z niezgodnym Cluster ID przy restarci w docker compose.
     networks:
@@ -38,6 +46,7 @@ services:
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
     container_name: kafka-ui
+    logging: *default-logging
     ports:
       - "8080:8080"
     environment:
@@ -52,6 +61,7 @@ services:
   mongodb:
     image: mongo:8.0
     container_name: mongodb
+    logging: *default-logging
     ports:
       - "27017:27017"
     volumes:
@@ -64,6 +74,7 @@ services:
     build:
       context: ./mongo-api
       dockerfile: Dockerfile
+    logging: *default-logging
     container_name: mongo-api
     restart: unless-stopped
     ports:
@@ -83,6 +94,7 @@ services:
   # MinIO (S3-compatible object storage)
   minio:
     image: minio/minio:latest
+    logging: *default-logging
     container_name: minio
     ports:
       - "9000:9000"
@@ -99,6 +111,7 @@ services:
   # Spark cluster shared by TwitchChat and TwitchAPI jobs
   spark-master:
     image: apache/spark:3.5.0
+    logging: *default-logging
     container_name: spark-master
     restart: unless-stopped
     user: root
@@ -114,6 +127,7 @@ services:
       context: ./TwitchChat/processor
       dockerfile: Dockerfile
     container_name: spark-worker
+    logging: *default-logging
     restart: unless-stopped
     user: root
     command: /opt/spark/bin/spark-class org.apache.spark.deploy.worker.Worker spark://spark-master:7077
@@ -122,7 +136,7 @@ services:
       SPARK_WORKER_MEMORY: 2g
       SPARK_WORKER_CLEANUP_ENABLED: "true"
       SPARK_WORKER_CLEANUP_INTERVAL: "900"
-      SPARK_WORKER_APP_DATA_RETENTION: "7200"
+      SPARK_WORKER_APP_DATA_RETENTION: "3600"
     depends_on:
       - spark-master
     networks:
@@ -132,6 +146,7 @@ services:
     build:
       context: ./TwitchChat/processor
       dockerfile: Dockerfile
+    logging: *default-logging
     container_name: spark-worker-2
     restart: unless-stopped
     user: root
@@ -141,7 +156,7 @@ services:
       SPARK_WORKER_MEMORY: 2g
       SPARK_WORKER_CLEANUP_ENABLED: "true"
       SPARK_WORKER_CLEANUP_INTERVAL: "900"
-      SPARK_WORKER_APP_DATA_RETENTION: "7200"
+      SPARK_WORKER_APP_DATA_RETENTION: "3600"
     depends_on:
       - spark-master
     networks:
@@ -152,6 +167,7 @@ services:
     build:
       context: ./TwitchChat/producer
       dockerfile: Dockerfile.irc
+    logging: *default-logging
     container_name: twitchchat_producer
     restart: on-failure
     environment:
@@ -172,6 +188,7 @@ services:
       context: ./TwitchChat/processor
       dockerfile: Dockerfile
     container_name: twitchchat_processor
+    logging: *default-logging
     command: >
       /opt/spark/bin/spark-submit
       --master spark://spark-master:7077
@@ -211,6 +228,7 @@ services:
       context: ./TwitchAPI/producer
       dockerfile: Dockerfile
     container_name: twitchapi_producer
+    logging: *default-logging
     restart: on-failure
     environment:
       PYTHONUNBUFFERED: 1
@@ -229,6 +247,7 @@ services:
     build:
       context: ./TwitchAPI/processor
       dockerfile: Dockerfile
+    logging: *default-logging
     container_name: twitchapi_batch_processor
     command: >
       /opt/spark/bin/spark-submit
@@ -263,6 +282,7 @@ services:
     build:
       context: ./GoogleTrends
       dockerfile: Dockerfile
+    logging: *default-logging
     container_name: googletrends_producer
     restart: on-failure
     environment:
@@ -286,6 +306,7 @@ services:
     build:
       context: ./GoogleTrends/processor
       dockerfile: Dockerfile
+    logging: *default-logging
     container_name: googletrends_batch_processor
     restart: on-failure
     command: >
@@ -321,6 +342,7 @@ services:
 
   # Grafana dashboard layer using the local Mongo API
   grafana:
+    logging: *default-logging
     image: grafana/grafana:latest
     container_name: grafana
     profiles:
