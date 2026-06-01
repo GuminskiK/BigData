@@ -19,6 +19,9 @@ services:
     # Usunięto wolumeny, by stan Zookeepera (metadane) był czyszczony z każdym nowym kontenerem
     networks:
       - bigdata-net
+    volumes:
+      - zookeeper_data:/var/lib/zookeeper/data
+      - zookeeper_log:/var/lib/zookeeper/log
 
   # Kafka broker (can be replaced with external broker by setting KAFKA_EXTERNAL=true and pointing producers/processors to it)
   kafka:
@@ -41,6 +44,8 @@ services:
     # Zapobiega to errorom z niezgodnym Cluster ID przy restarci w docker compose.
     networks:
       - bigdata-net
+    volumes:
+      - kafka_data:/var/lib/kafka/data
 
   # Kafka web UI
   kafka-ui:
@@ -367,6 +372,9 @@ volumes:
   spark_checkpoints_chat:
   minio_data:
   grafana_data:
+  zookeeper_data:
+  zookeeper_log:
+  kafka_data:
 
 networks:
   bigdata-net:
