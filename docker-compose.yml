@@ -92,9 +92,9 @@ services:
       MONGO_BACKEND: ${MONGO_BACKEND:-atlas}
       MONGO_URI_LOCAL: mongodb://mongodb:27017
       MONGO_URI: ${MONGO_URI:-}
-      MONGO_DB_ANALYTICS: twitch_api_analytics
-      MONGO_DB_CHAT: twitch_chat
-      GOOGLE_TRENDS_DB_NAME: google_trends
+      MONGO_DB_ANALYTICS: ${MONGO_DB_ANALYTICS:-twitch_api_analytics}
+      MONGO_DB_CHAT: ${MONGO_DB_CHAT:-twitch_chat}
+      GOOGLE_TRENDS_DB_NAME: ${GOOGLE_TRENDS_DB_NAME:-google_trends}
     networks:
       - bigdata-net
 
@@ -218,6 +218,7 @@ services:
       MONGO_BACKEND: ${MONGO_BACKEND:-atlas}
       MONGO_URI_LOCAL: mongodb://mongodb:27017
       MONGO_URI: ${MONGO_URI:-}
+      MONGO_DB_CHAT: ${MONGO_DB_CHAT:-twitch_chat}
       SPARK_CHECKPOINT_VERSION: ${SPARK_CHECKPOINT_VERSION:-v1}
     depends_on:
       - spark-master
@@ -275,7 +276,7 @@ services:
       MONGO_BACKEND: ${MONGO_BACKEND:-atlas}
       MONGO_URI_LOCAL: mongodb://mongodb:27017
       MONGO_URI: ${MONGO_URI:-}
-      MONGO_DB_ANALYTICS: twitch_api_analytics
+      MONGO_DB_ANALYTICS: ${MONGO_DB_ANALYTICS:-twitch_api_analytics}
     depends_on:
       - spark-master
       - minio
@@ -334,13 +335,15 @@ services:
       MONGO_BACKEND: ${MONGO_BACKEND:-atlas}
       MONGO_URI_LOCAL: mongodb://mongodb:27017
       MONGO_URI: ${MONGO_URI:-}
-      GOOGLE_TRENDS_DB_NAME: google_trends
+      MONGO_DB_TRENDS: ${MONGO_DB_TRENDS:-google_trends}
       GOOGLE_TRENDS_TIMEFRAME: now 7-d
       GOOGLE_TRENDS_GEO: ""
     depends_on:
       - spark-master
       - kafka
       - minio
+    volumes:
+      - googletrends_checkpoints:/app/spark_checkpoints
     networks:
       - bigdata-net
 
@@ -370,6 +373,7 @@ services:
 volumes:
   mongodb_data:
   spark_checkpoints_chat:
+  googletrends_checkpoints:
   minio_data:
   grafana_data:
   zookeeper_data:

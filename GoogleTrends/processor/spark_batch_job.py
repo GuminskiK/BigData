@@ -28,7 +28,7 @@ MINIO_BUCKET = os.getenv("MINIO_BUCKET", "google-trends-raw")
 MONGO_BACKEND = os.getenv("MONGO_BACKEND", "local").lower()
 MONGO_URI_LOCAL = os.getenv("MONGO_URI_LOCAL", "mongodb://mongodb:27017")
 MONGO_URI_ATLAS = os.getenv("MONGO_URI", "")
-MONGO_DB_NAME = os.getenv("GOOGLE_TRENDS_DB_NAME", os.getenv("MONGO_DB_TRENDS", "google_trends"))
+MONGO_DB_NAME = os.getenv("MONGO_DB_TRENDS", "google_trends")
 
 
 def is_valid_mongo_uri(uri: str) -> bool:
@@ -66,13 +66,15 @@ def create_spark_session():
         "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.0",
         "org.apache.hadoop:hadoop-aws:3.3.4",
         "com.amazonaws:aws-java-sdk-bundle:1.12.262",
-        "org.mongodb.spark:mongo-spark-connector_2.12:10.4.0",
+        "org.mongodb.spark:mongo-spark-connector_2.12:10.3.0",
     ]
 
     spark = (
         SparkSession.builder.appName("GoogleTrendsBatchAnalytics")
         .config("spark.master", "spark://spark-master:7077")
         .config("spark.sql.streaming.minBatchesToRetain", "2")
+        .config("spark.sql.streaming.checkpointFileManager.cleaner.enabled", "true")
+        .config("spark.sql.shuffle.partitions", "2")
         .config("spark.jars.packages", ",".join(packages))
         .config("spark.hadoop.fs.s3a.endpoint", MINIO_ENDPOINT)
         .config("spark.hadoop.fs.s3a.access.key", MINIO_ACCESS_KEY)
@@ -88,9 +90,6 @@ def create_spark_session():
 
 
 def write_to_mongo(dataframe, collection, mode="append"):
-    if dataframe.rdd.isEmpty():
-        return
-
     dataframe.write.format("mongodb").mode(mode).option(
         "spark.mongodb.write.connection.uri", resolve_mongo_uri()
     ).option("spark.mongodb.write.database", MONGO_DB_NAME).option(
@@ -108,8 +107,8 @@ def process_batch(batch_df, epoch_id):
         .withColumn("ingested_month", month("ingested_at"))
         .withColumn("ingested_day", dayofmonth("ingested_at"))
         .withColumn("ingested_hour", hour("ingested_at"))
-        .withColumn("timestamp_ts", to_timestamp("timestamp"))
-        .withColumn("collected_at_ts", to_timestamp("collected_at"))
+        .withColumn("timestamp_ts", col("timestamp"))
+        .withColumn("collected_at_ts", col("collected_at"))
     )
 
     raw_path = f"s3a://{MINIO_BUCKET}/raw/google_trends"
@@ -121,7 +120,9 @@ def process_batch(batch_df, epoch_id):
         "keyword",
     ).parquet(raw_path)
 
-    write_to_mongo(batch_df, "google_trends_interest_over_time")
+    # Zapisujemy historię (raw_df zawiera już rzutowane timestampy)
+    history_df = raw_df.select("keyword", "timestamp", "interest", "timeframe", "geo", "collected_at")
+    write_to_mongo(history_df, "google_trends_interest_over_time")
 
     latest_window = Window.partitionBy("keyword").orderBy(col("timestamp_ts").desc(), col("collected_at_ts").desc())
     latest_interest = (
@@ -143,7 +144,7 @@ def process_batch(batch_df, epoch_id):
     )
 
     write_to_mongo(summary, "google_trends_summary")
-    print(f"Processed Google Trends batch {epoch_id} with {batch_df.count()} rows.")
+    print(f"Processed Google Trends batch {epoch_id} successfully.")
 
 
 def main():
