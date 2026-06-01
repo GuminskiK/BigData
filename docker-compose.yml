@@ -9,9 +9,7 @@ services:
       ZOOKEEPER_TICK_TIME: 2000
     ports:
       - "2181:2181"
-    volumes:
-      - zookeeper_data:/var/lib/zookeeper/data
-      - zookeeper_log:/var/lib/zookeeper/log
+    # Usunięto wolumeny, by stan Zookeepera (metadane) był czyszczony z każdym nowym kontenerem
     networks:
       - bigdata-net
 
@@ -29,8 +27,10 @@ services:
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-    volumes:
-      - kafka_data_v2:/var/lib/kafka/data
+      KAFKA_LOG_RETENTION_HOURS: 2
+      KAFKA_LOG_RETENTION_BYTES: 2147483648 # 2GB
+    # Usunięto wolumen tak aby state był ulotny pomiędzy usunięciem i stworzeniem kontenera.
+    # Zapobiega to errorom z niezgodnym Cluster ID przy restarci w docker compose.
     networks:
       - bigdata-net
 
@@ -120,6 +120,9 @@ services:
     environment:
       SPARK_WORKER_CORES: 2
       SPARK_WORKER_MEMORY: 2g
+      SPARK_WORKER_CLEANUP_ENABLED: "true"
+      SPARK_WORKER_CLEANUP_INTERVAL: "900"
+      SPARK_WORKER_APP_DATA_RETENTION: "7200"
     depends_on:
       - spark-master
     networks:
@@ -136,6 +139,9 @@ services:
     environment:
       SPARK_WORKER_CORES: 2
       SPARK_WORKER_MEMORY: 2g
+      SPARK_WORKER_CLEANUP_ENABLED: "true"
+      SPARK_WORKER_CLEANUP_INTERVAL: "900"
+      SPARK_WORKER_APP_DATA_RETENTION: "7200"
     depends_on:
       - spark-master
     networks:
@@ -338,11 +344,8 @@ services:
 volumes:
   mongodb_data:
   spark_checkpoints_chat:
-  kafka_data_v2:
   minio_data:
   grafana_data:
-  zookeeper_data:
-  zookeeper_log:
 
 networks:
   bigdata-net:

@@ -84,6 +84,7 @@ def ensure_bucket_exists():
 def create_spark_session():
     return (
         SparkSession.builder.appName("TwitchChatProcessor")
+        .config("spark.sql.streaming.minBatchesToRetain", "2")
         .config("spark.mongodb.write.connection.uri", resolve_mongo_uri())
         .config("spark.hadoop.fs.s3a.endpoint", MINIO_ENDPOINT)
         .config("spark.hadoop.fs.s3a.access.key", MINIO_ACCESS_KEY)

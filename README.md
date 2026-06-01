@@ -132,3 +132,4 @@ In all of those collections, the latest state is determined by `snapshot_at`, `t
 - Google Trends uses `pytrends`, so Google rate limiting may still happen occasionally.
 - Switch between local MongoDB and Atlas by changing `MONGO_BACKEND` in `.env` from `local` to `atlas`.
 - If a Spark streaming checkpoint gets stale, bump `SPARK_CHECKPOINT_VERSION` instead of deleting all volumes.
+- If Kafka logs `InconsistentClusterIdException`, recreate the Kafka data volume or bump its name in `docker-compose.yml` so it starts against the current ZooKeeper metadata.

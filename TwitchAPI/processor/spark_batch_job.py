@@ -81,6 +81,7 @@ def create_spark_session():
     spark = (
         SparkSession.builder.appName("TwitchBatchAnalytics")
         .config("spark.master", "spark://spark-master:7077")
+        .config("spark.sql.streaming.minBatchesToRetain", "2")
         .config("spark.jars.packages", ",".join(packages))
         .config("spark.hadoop.fs.s3a.endpoint", MINIO_ENDPOINT)
         .config("spark.hadoop.fs.s3a.access.key", MINIO_ACCESS_KEY)
