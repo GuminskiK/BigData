@@ -82,20 +82,32 @@ def ensure_bucket_exists():
 
 
 def create_spark_session():
-    return (
-        SparkSession.builder.appName("TwitchChatProcessor")
-        .config("spark.sql.streaming.minBatchesToRetain", "2")
-        .config("spark.sql.streaming.checkpointFileManager.cleaner.enabled", "true")
-        .config("spark.sql.shuffle.partitions", "2")
-        .config("spark.mongodb.write.connection.uri", resolve_mongo_uri())
-        .config("spark.hadoop.fs.s3a.endpoint", MINIO_ENDPOINT)
-        .config("spark.hadoop.fs.s3a.access.key", MINIO_ACCESS_KEY)
-        .config("spark.hadoop.fs.s3a.secret.key", MINIO_SECRET_KEY)
-        .config("spark.hadoop.fs.s3a.path.style.access", "true")
-        .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
-        .config("spark.hadoop.fs.s3a.connection.ssl.enabled", "false")
-        .getOrCreate()
-    )
+    
+    spark = (
+            SparkSession.builder.appName("TwitchChatProcessor")
+            # Optymalizacja pod mały RAM (8GB)
+            .config("spark.driver.memory", "1g")
+            .config("spark.executor.memory", "1g")
+            .config("spark.sql.shuffle.partitions", "2")  # Kluczowe: mniej partycji = mniejszy overhead
+            
+            # Zarządzanie checkpointami i danymi
+            .config("spark.sql.streaming.minBatchesToRetain", "2")
+            .config("spark.sql.streaming.checkpointFileManager.cleaner.enabled", "true")
+            .config("spark.cleaner.periodicGC.interval", "1min")
+            
+            .config("spark.mongodb.write.connection.uri", resolve_mongo_uri())
+            .config("spark.hadoop.fs.s3a.endpoint", MINIO_ENDPOINT)
+            .config("spark.hadoop.fs.s3a.access.key", MINIO_ACCESS_KEY)
+            .config("spark.hadoop.fs.s3a.secret.key", MINIO_SECRET_KEY)
+            .config("spark.hadoop.fs.s3a.path.style.access", "true")
+            .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
+            .config("spark.hadoop.fs.s3a.connection.ssl.enabled", "false")
+            .getOrCreate()
+        )
+
+    spark.sparkContext.setLogLevel("WARN")
+    return spark
+    
 
 
 def wait_for_kafka_connection():
