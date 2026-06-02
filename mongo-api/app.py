@@ -19,7 +19,7 @@ API_HOST = os.getenv("API_HOST", "0.0.0.0")
 API_PORT = int(os.getenv("API_PORT", "5000"))
 ANALYTICS_DB = os.getenv("MONGO_DB_ANALYTICS", "twitch_api_analytics")
 CHAT_DB = os.getenv("MONGO_DB_CHAT", "twitch_chat")
-TRENDS_DB = os.getenv("GOOGLE_TRENDS_DB_NAME", "google_trends")
+TRENDS_DB = os.getenv("MONGO_DB_TRENDS", "google_trends")
 
 
 def is_valid_mongo_uri(uri: str) -> bool:
@@ -30,8 +30,10 @@ def is_valid_mongo_uri(uri: str) -> bool:
 
 def resolve_mongo_uri() -> str:
     if MONGO_BACKEND == "atlas" and is_valid_mongo_uri(MONGO_URI_ATLAS):
+        print("Using MongoDB Atlas backend")
         return MONGO_URI_ATLAS
 
+    print(f"Using local MongoDB backend (Atlas URI valid: {is_valid_mongo_uri(MONGO_URI_ATLAS)})")
     return MONGO_URI_LOCAL
 
 client = MongoClient(resolve_mongo_uri())
@@ -344,6 +346,14 @@ def creator_names() -> list[str]:
 def creator_summary_response(creator: str):
     snapshot = latest_creator_snapshot(creator)
     chat_stats = latest_channel_stats(creator)
+    
+    # Pobieramy rekordowy Peak Viewers z całej historii dla tego twórcy
+    peak_doc = db_analytics.creator_stats.find_one(
+        {"user_name": creator_regex(creator), "stream_scope": "targeted"},
+        {"peak_viewers": 1},
+        sort=[("peak_viewers", DESCENDING)]
+    )
+
     trends_docs = collect(
         db_trends.google_trends_interest_over_time.find(
             {"keyword": creator_regex(creator)},
@@ -356,7 +366,7 @@ def creator_summary_response(creator: str):
         {
             "creator": creator,
             "current_viewers": as_int(snapshot.get("current_viewers", 0)) if snapshot else 0,
-            "peak_viewers": as_int(snapshot.get("peak_viewers", 0)) if snapshot else 0,
+            "peak_viewers": as_int(peak_doc.get("peak_viewers", 0)) if peak_doc else 0,
             "current_game": snapshot.get("game_name", "offline") if snapshot else "offline",
             "current_title": snapshot.get("title", "OFFLINE") if snapshot else "OFFLINE",
             "current_started_at": as_iso(snapshot.get("started_at")) if snapshot and snapshot.get("started_at") else None,

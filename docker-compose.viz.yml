@@ -1,0 +1,46 @@
+networks:
+  bigdata-net:
+    driver: bridge
+
+services:
+  mongo-api:
+    build:
+      context: ./mongo-api
+      dockerfile: Dockerfile
+    container_name: mongo-api
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    environment:
+      API_HOST: 0.0.0.0
+      API_PORT: 5000
+      MONGO_BACKEND: ${MONGO_BACKEND:-atlas}
+      MONGO_URI_LOCAL: mongodb://mongodb:27017
+      MONGO_URI: ${MONGO_URI:-}
+      MONGO_DB_ANALYTICS: ${MONGO_DB_ANALYTICS:-twitch_api_analytics}
+      MONGO_DB_CHAT: ${MONGO_DB_CHAT:-twitch_chat}
+      MONGO_DB_TRENDS: ${MONGO_DB_TRENDS:-google_trends}
+    networks:
+      - bigdata-net
+
+  viz-grafana:
+    image: grafana/grafana:latest
+    container_name: viz-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_INSTALL_PLUGINS: yesoreyeram-infinity-datasource
+      GF_PLUGINS_ALLOW_LOADING_UNSIGNED_PLUGINS: yesoreyeram-infinity-datasource
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+    depends_on:
+      - mongo-api
+    networks:
+      - bigdata-net
+
+volumes:
+  grafana_data:

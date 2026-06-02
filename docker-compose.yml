@@ -58,6 +58,7 @@ services:
   minio:
     image: minio/minio:latest
     container_name: minio
+    restart: unless-stopped
     logging: *default-logging
     ports:
       - "9000:9000"
@@ -113,7 +114,7 @@ services:
       context: ./TwitchChat/producer
       dockerfile: Dockerfile.irc
     container_name: twitchchat_producer
-    restart: on-failure
+    restart: unless-stopped
     logging: *default-logging
     environment:
       PYTHONUNBUFFERED: 1
@@ -132,7 +133,7 @@ services:
       context: ./TwitchAPI/producer
       dockerfile: Dockerfile
     container_name: twitchapi_producer
-    restart: on-failure
+    restart: unless-stopped
     logging: *default-logging
     environment:
       PYTHONUNBUFFERED: 1
@@ -151,7 +152,7 @@ services:
       context: ./GoogleTrends
       dockerfile: Dockerfile
     container_name: googletrends_producer
-    restart: on-failure
+    restart: unless-stopped
     logging: *default-logging
     environment:
       PYTHONUNBUFFERED: 1
@@ -177,6 +178,7 @@ services:
       dockerfile: Dockerfile
     container_name: twitchchat_processor
     logging: *default-logging
+    restart: unless-stopped
     command: >
       /opt/spark/bin/spark-submit
       --master spark://spark-master:7077
@@ -218,6 +220,7 @@ services:
       dockerfile: Dockerfile
     container_name: twitchapi_batch_processor
     logging: *default-logging
+    restart: unless-stopped
     command: >
       /opt/spark/bin/spark-submit
       --master spark://spark-master:7077
@@ -253,7 +256,7 @@ services:
       dockerfile: Dockerfile
     container_name: googletrends_batch_processor
     logging: *default-logging
-    restart: on-failure
+    restart: unless-stopped
     command: >
       /opt/spark/bin/spark-submit
       --master spark://spark-master:7077
@@ -322,7 +325,8 @@ services:
       context: ./mongo-api
       dockerfile: Dockerfile
     container_name: mongo-api
-    profiles: ["tools"]
+    profiles:
+      - viz
     logging: *default-logging
     restart: unless-stopped
     ports:
@@ -335,7 +339,7 @@ services:
       MONGO_URI: ${MONGO_URI:-}
       MONGO_DB_ANALYTICS: ${MONGO_DB_ANALYTICS:-twitch_api_analytics}
       MONGO_DB_CHAT: ${MONGO_DB_CHAT:-twitch_chat}
-      GOOGLE_TRENDS_DB_NAME: ${GOOGLE_TRENDS_DB_NAME:-google_trends}
+      MONGO_DB_TRENDS: ${MONGO_DB_TRENDS:-google_trends}
     networks:
       - bigdata-net
 

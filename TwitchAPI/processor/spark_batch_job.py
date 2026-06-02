@@ -1,26 +1,14 @@
 import os
-
-import boto3
-from dotenv import load_dotenv
 from pymongo import MongoClient, UpdateOne
 from pyspark.sql import SparkSession, Window
 from pyspark.sql.functions import (
-    avg,
-    col,
-    count,
-    current_timestamp,
-    dayofmonth,
-    from_json,
-    hour,
-    lit,
-    max,
-    month,
-    row_number,
-    sum,
-    to_timestamp,
-    year,
+    avg, col, count, current_timestamp, dayofmonth, from_json, 
+    hour, lit, max, month, row_number, sum, to_timestamp, year
 )
 from pyspark.sql.types import BooleanType, IntegerType, StringType, StructType
+
+import boto3
+from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -102,77 +90,68 @@ def to_docs(dataframe):
     return [row.asDict(recursive=True) for row in dataframe.collect()]
 
 
-def upsert_documents(collection_name, documents, key_fields):
+def insert_documents(collection_name, documents):
     if not documents:
         return
+    mongo_db[collection_name].insert_many(documents)
 
+def upsert_documents(collection_name, documents, keys):
+    """
+    Zamiast klasycznego upsertu, który nadpisuje dane, 
+    robimy insert, aby zachować historię dla wykresów czasowych Grafany.
+    Dodatkowo tworzymy indeksy na kluczach, aby API działało szybko.
+    """
+    if not documents:
+        return
+    
     collection = mongo_db[collection_name]
-    operations = []
-
-    for document in documents:
-        query = {field: document[field] for field in key_fields}
-        payload = {key: value for key, value in document.items() if key not in {"_id"}}
-        operations.append(UpdateOne(query, {"$set": payload}, upsert=True))
-
-    collection.bulk_write(operations, ordered=False)
-
+    
+    # Opcjonalnie: upewnij się, że masz indeksy pod zapytania Grafany
+    if keys:
+        collection.create_index([(k, 1) for k in keys] + [("snapshot_at", -1)])
+    
+    # Wstawiamy nowe snapshoty (to pozwala na wykresy 'viewers over time')
+    collection.insert_many(documents)
+    print(f"Inserted {len(documents)} snapshots into {collection_name}")
 
 def process_scope(scope_name, scope_df, collection_suffix=""):
     if scope_df.rdd.isEmpty():
-        print(f"No rows found for scope '{scope_name}'. Skipping writes.")
         return
 
-    latest_window = Window.partitionBy("user_name").orderBy(
-        col("collected_at_ts").desc(),
-        col("viewer_count").desc(),
-    )
-
-    latest_streams = scope_df.withColumn("rn", row_number().over(latest_window)) \
-        .filter(col("rn") == 1) \
-        .drop("rn")
-
-    peak_by_streamer = scope_df.groupBy("user_name") \
-        .agg(max("viewer_count").alias("peak_viewers"))
-
-    creator_snapshots = latest_streams.join(peak_by_streamer, on="user_name", how="inner") \
-        .select(
-            "user_name",
-            "game_name",
-            col("viewer_count").alias("current_viewers"),
-            "peak_viewers",
-            "title",
-            "started_at",
-            "collected_at",
-            "is_live",
+    # 1. Agregacja dla top gier w tym konkretnym momencie (batchu)
+    top_games = scope_df.groupBy("game_name") \
+        .agg(
+            sum("viewer_count").alias("total_viewers"), 
+            count("stream_id").alias("streams_count")
         ) \
         .withColumn("stream_scope", lit(scope_name)) \
         .withColumn("snapshot_at", current_timestamp())
 
-    top_games = scope_df.groupBy("game_name") \
-        .agg(sum("viewer_count").alias("total_viewers"), count("stream_id").alias("streams_count")) \
-        .orderBy(col("total_viewers").desc()) \
-        .withColumn("stream_scope", lit(scope_name)) \
-        .withColumn("snapshot_at", current_timestamp())
-
+    # 2. Agregacja dla streamerów (kto ma najwięcej widzów teraz)
     top_streamers = scope_df.groupBy("user_name", "game_name") \
         .agg(max("viewer_count").alias("peak_viewers")) \
-        .orderBy(col("peak_viewers").desc()) \
         .withColumn("stream_scope", lit(scope_name)) \
         .withColumn("snapshot_at", current_timestamp())
 
-    print(f"Writing {scope_name} analytics to MongoDB...")
-    upsert_documents(f"top_games{collection_suffix}", to_docs(top_games), ["stream_scope", "game_name"])
-    upsert_documents(
-        f"streamer_stats{collection_suffix}",
-        to_docs(top_streamers),
-        ["stream_scope", "user_name", "game_name"],
-    )
-    upsert_documents(
-        f"creator_stats{collection_suffix}",
-        to_docs(creator_snapshots),
-        ["stream_scope", "user_name"],
-    )
+    # 3. Szczegółowe statystyki twórców (tytuły, status live)
+    # Wybieramy najświeższy rekord dla każdego streamu w batchu
+    window_spec = Window.partitionBy("user_name").orderBy(col("collected_at_ts").desc())
+    
+    creator_snapshots = scope_df.withColumn("rn", row_number().over(window_spec)) \
+        .filter(col("rn") == 1) \
+        .select(
+            "user_name", "game_name", 
+            col("viewer_count").alias("current_viewers"),
+            col("viewer_count").alias("peak_viewers"), # w tym snapshot'cie
+            "title", "started_at", "collected_at", "is_live"
+        ) \
+        .withColumn("stream_scope", lit(scope_name)) \
+        .withColumn("snapshot_at", current_timestamp())
 
+    # Zapis do MongoDB
+    upsert_documents(f"top_games{collection_suffix}", to_docs(top_games), ["game_name", "stream_scope"])
+    upsert_documents(f"streamer_stats{collection_suffix}", to_docs(top_streamers), ["user_name", "stream_scope"])
+    upsert_documents(f"creator_stats{collection_suffix}", to_docs(creator_snapshots), ["user_name", "stream_scope"])
 
 def process_data():
     ensure_bucket_exists()
@@ -201,6 +180,7 @@ def process_data():
         .option("kafka.bootstrap.servers", KAFKA_BROKER)
         .option("subscribe", TOPIC_NAME)
         .option("startingOffsets", "earliest")
+        .option("failOnDataLoss", "false")
         .load()
     )
 
