@@ -183,7 +183,12 @@ def build_window_stats(batch_df, window_duration, window_minutes, collection_nam
         .withColumn("window_minutes", lit(window_minutes))
         .withColumn("snapshot_at", current_timestamp())
     )
-    insert_documents(collection_name, to_docs(windowed_df))
+    windowed_df.write \
+    .format("mongodb") \
+    .option("database", MONGODB_DB) \
+    .option("collection", collection_name) \
+    .mode("append") \
+    .save()
 
 
 def build_user_totals(batch_df):
