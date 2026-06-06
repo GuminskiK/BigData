@@ -120,7 +120,6 @@ def process_batch(batch_df, epoch_id):
         "keyword",
     ).parquet(raw_path)
 
-    # Zapisujemy historię (raw_df zawiera już rzutowane timestampy)
     history_df = raw_df.select("keyword", "timestamp", "interest", "timeframe", "geo", "collected_at")
     write_to_mongo(history_df, "google_trends_interest_over_time")
 

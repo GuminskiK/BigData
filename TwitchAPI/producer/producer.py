@@ -68,7 +68,6 @@ def fetch_and_send_streams():
             print("No Twitch channels configured in TWITCH_CHANNELS.")
             return
 
-        # Twitch Helix streams endpoint supports filtering by user_login.
         params = [("user_login", channel) for channel in TWITCH_CHANNELS]
         response = requests.get("https://api.twitch.tv/helix/streams", headers=headers, params=params)
         response.raise_for_status()
@@ -143,7 +142,6 @@ if __name__ == "__main__":
     
     fetch_and_send_streams()
     
-    # Scheduling (5 minuts)
     schedule.every(5).minutes.do(fetch_and_send_streams)
     print("Producer is running. Waiting for scheduled jobs...")
     

@@ -85,12 +85,10 @@ def create_spark_session():
     
     spark = (
             SparkSession.builder.appName("TwitchChatProcessor")
-            # Optymalizacja pod mały RAM (8GB)
             .config("spark.driver.memory", "1g")
             .config("spark.executor.memory", "1g")
-            .config("spark.sql.shuffle.partitions", "2")  # Kluczowe: mniej partycji = mniejszy overhead
-            
-            # Zarządzanie checkpointami i danymi
+            .config("spark.sql.shuffle.partitions", "2") 
+
             .config("spark.sql.streaming.minBatchesToRetain", "2")
             .config("spark.sql.streaming.checkpointFileManager.cleaner.enabled", "true")
             .config("spark.cleaner.periodicGC.interval", "1min")
